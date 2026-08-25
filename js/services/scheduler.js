@@ -17,6 +17,7 @@ const roundRobinRounds = (teams) => {
     return rounds;
 };
 const pairKey = (a, b) => [a, b].sort().join(':');
+const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
 
 export const SchedulerService = {
     // Emparejamiento: determina únicamente quién juega contra quién, por zona.
@@ -55,7 +56,7 @@ export const SchedulerService = {
                     const key = pairKey(local.id, visitante.id);
                     // Las repeticiones sólo se habilitan tras agotar cruces únicos.
                     if (isFirstCycle && pairsSeen.has(key)) return;
-                    pending.push({ torneoId, categoriaId, zonaId: zone.id, equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'emparejado', setsLocal: null, setsVisitante: null });
+                    pending.push({ torneoId, categoriaId, zonaId: zone.id, equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
                     counts.set(local.id, counts.get(local.id) + 1);
                     counts.set(visitante.id, counts.get(visitante.id) + 1);
                     pairsSeen.add(key);
@@ -68,10 +69,19 @@ export const SchedulerService = {
         return pending.length;
     },
 
-    verificarPartidosAsegurados(torneoId, categoriaId) {
+    confirmarEmparejamientos(torneoId, categoriaId) {
+        const drafts = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
+            .filter(match => match.estado === 'borrador' || match.estado === 'emparejado');
+        if (!drafts.length) return 0;
+        DataManager.updateMatches(drafts.map(match => ({ ...match, estado: 'pendiente', confirmado: true })));
+        return drafts.length;
+    },
+
+    verificarPartidosAsegurados(torneoId, categoriaId, onlyOfficial = false) {
         const tournament = DataManager.getTournament(torneoId);
         const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
-        const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
+        const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
+            .filter(match => !onlyOfficial || isOfficialMatch(match));
         const missing = teams.filter(team => matches.filter(match => match.equipoLocalId === team.id || match.equipoVisitanteId === team.id).length < tournament.partidos_asegurados);
         return missing.length ? { ok: false, mensaje: `Faltan partidos asegurados para: ${missing.map(team => team.nombre).join(', ')}.` } : { ok: true, mensaje: 'Todos los equipos cumplen los partidos asegurados.' };
     },
@@ -80,9 +90,11 @@ export const SchedulerService = {
     programarEmparejamientos(torneoId, categoriaId) {
         const dates = DataManager.getCalendarDates(torneoId);
         if (!dates.length) throw new Error('Configure al menos un día en Calendario.');
-        const verification = this.verificarPartidosAsegurados(torneoId, categoriaId);
+        const allMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
+        if (allMatches.some(match => !isOfficialMatch(match))) throw new Error('Confirme los emparejamientos antes de programarlos.');
+        const verification = this.verificarPartidosAsegurados(torneoId, categoriaId, true);
         if (!verification.ok) throw new Error(verification.mensaje);
-        const toSchedule = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.estado === 'emparejado');
+        const toSchedule = allMatches.filter(match => isOfficialMatch(match) && !match.fecha && match.estado !== 'finalizado');
         if (!toSchedule.length) return 0;
         // Con varios días, el último queda reservado para las eliminatorias.
         const groupDates = dates.length > 1 ? dates.slice(0, -1) : dates;
@@ -98,7 +110,7 @@ export const SchedulerService = {
             while (slotIndex < slots.length) {
                 const slot = slots[slotIndex++];
                 const conflict = scheduled.some(other => other.fecha === slot.fecha && other.hora === slot.hora && [other.equipoLocalId, other.equipoVisitanteId].some(id => id === match.equipoLocalId || id === match.equipoVisitanteId));
-                if (!conflict) { scheduled.push({ ...match, ...slot, estado: 'programado' }); assigned = true; break; }
+                if (!conflict) { scheduled.push({ ...match, ...slot, estado: 'pendiente', confirmado: true }); assigned = true; break; }
             }
             if (!assigned) throw new Error('No se pudieron programar todos los emparejamientos sin superponer equipos.');
         }
