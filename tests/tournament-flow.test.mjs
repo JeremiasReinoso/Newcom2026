@@ -61,10 +61,13 @@ const scenario = `
     if (dates.join(',') !== '2026-09-12,2026-09-13,2026-09-14') throw new Error('El período del torneo no generó sus tres días.');
     const daySchedules = DataManager.getDaySchedules(tournament.id);
     if (daySchedules.map(day => day.fecha + ':' + day.inicio + '-' + day.fin).join(',') !== '2026-09-12:08:00-10:00,2026-09-13:11:00-13:00,2026-09-14:14:00-17:00') throw new Error('No se guardaron los horarios independientes por día.');
+    DataManager.setTournamentCourtCount(tournament.id, 3);
     const scheduled = SchedulerService.programarEmparejamientos(tournament.id, category.id);
     matches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     const scheduleByDate = new Map(daySchedules.map(day => [day.fecha, day]));
     if (scheduled !== 8 || matches.some(match => !match.fecha || !match.hora || !match.cancha || match.estado !== 'pendiente' || !scheduleByDate.has(match.fecha) || match.hora < scheduleByDate.get(match.fecha).inicio || match.hora >= scheduleByDate.get(match.fecha).fin)) throw new Error('La programación está incompleta o sale de los horarios configurados.');
+    const matchesPerCourt = [...matches.reduce((countsByCourt, match) => countsByCourt.set(match.cancha, (countsByCourt.get(match.cancha) || 0) + 1), new Map()).values()];
+    if (matchesPerCourt.length !== 3 || Math.max(...matchesPerCourt) - Math.min(...matchesPerCourt) > 1) throw new Error('Los partidos no se repartieron equilibradamente entre las canchas.');
     blocked = false;
     try { DataManager.updateMatchResult(matches[0].id, 1, 0); } catch { blocked = true; }
     if (!blocked) throw new Error('Se permitió un resultado distinto de 2-0 o 2-1.');
