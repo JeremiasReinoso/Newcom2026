@@ -20,6 +20,27 @@ const minutesFromTime = time => {
     return hour * 60 + minute;
 };
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
+// El marcador es el único dato que ingresa la interfaz. A partir de él se
+// construye el resultado interno que usan tabla y eliminatorias.
+const scoreFromMarker = (setsLocal, setsVisitante) => {
+    const local = Number(setsLocal);
+    const visitante = Number(setsVisitante);
+    if (local === 2 && visitante === 0) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 3, puntosVisitante: 1, ganaLocal: true };
+    if (local === 2 && visitante === 1) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 2, puntosVisitante: 1, ganaLocal: true };
+    if (visitante === 2 && local === 0) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 1, puntosVisitante: 3, ganaLocal: false };
+    if (visitante === 2 && local === 1) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 1, puntosVisitante: 2, ganaLocal: false };
+    return null;
+};
+const applyInternalResult = (match, setsLocal, setsVisitante) => {
+    const score = scoreFromMarker(setsLocal, setsVisitante);
+    if (!score) throw new Error('Los únicos resultados válidos son 2-0 o 2-1.');
+    match.estado = 'finalizado';
+    match.setsLocal = score.setsLocal;
+    match.setsVisitante = score.setsVisitante;
+    match.puntosLocal = score.puntosLocal;
+    match.puntosVisitante = score.puntosVisitante;
+    match.ganadorId = score.ganaLocal ? match.equipoLocalId : match.equipoVisitanteId;
+};
 
 export const DataManager = {
     _getStorage() {
@@ -32,6 +53,18 @@ export const DataManager = {
                 ...zone,
                 torneoId: zone.torneoId || data.categories.find(category => category.id === zone.categoriaId)?.torneoId || null
             }));
+            // Migra resultados anteriores al mismo modelo interno, sin depender
+            // de valores de puntos que hubiera podido mostrar una vista antigua.
+            data.matches = data.matches.map(match => {
+                if (match.estado !== 'finalizado') return match;
+                const score = scoreFromMarker(match.setsLocal, match.setsVisitante);
+                return score ? {
+                    ...match,
+                    puntosLocal: score.puntosLocal,
+                    puntosVisitante: score.puntosVisitante,
+                    ganadorId: score.ganaLocal ? match.equipoLocalId : match.equipoVisitanteId
+                } : match;
+            });
             return data;
         } catch {
             return emptyData();
@@ -99,7 +132,12 @@ export const DataManager = {
     getMatchesByScope(torneoId, categoriaId, zonaId) { return this.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => !zonaId || match.zonaId === zonaId); },
     addMatches(matches) {
         const data = this._getStorage();
-        data.matches.push(...matches.map(match => ({ id: makeId('partido'), ...match })));
+        data.matches.push(...matches.map(match => ({
+            id: makeId('partido'), ...match,
+            puntosLocal: null,
+            puntosVisitante: null,
+            ganadorId: null
+        })));
         this._setStorage(data);
     },
     updateMatches(matches) {
@@ -120,14 +158,8 @@ export const DataManager = {
         const data = this._getStorage();
         const match = data.matches.find(item => item.id === matchId);
         if (!match) throw new Error('No se encontró el partido.');
-        const local = Number(setsLocal);
-        const visitante = Number(setsVisitante);
-        const valid = (local === 2 && (visitante === 0 || visitante === 1)) || (visitante === 2 && (local === 0 || local === 1));
-        if (!valid) throw new Error('Los únicos resultados válidos son 2-0 o 2-1.');
         if (!match.confirmado && match.estado !== 'programado' && match.estado !== 'finalizado') throw new Error('El partido debe confirmarse antes de cargar un resultado.');
-        match.estado = 'finalizado';
-        match.setsLocal = local;
-        match.setsVisitante = visitante;
+        applyInternalResult(match, setsLocal, setsVisitante);
         this._setStorage(data);
     },
 
