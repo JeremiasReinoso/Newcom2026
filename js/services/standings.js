@@ -5,7 +5,7 @@ export const PosicionesService = {
         const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
         const rows = new Map(teams.map(team => [team.id, { ...team, jugados: 0, ganados: 0, perdidos: 0, puntos: 0, setsFavor: 0, setsContra: 0, diferenciaSets: 0 }]));
         DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
-            .filter(match => match.estado === 'finalizado')
+            .filter(match => match.estado === 'finalizado' && (!match.tipo || match.tipo === 'fase_zonas'))
             .forEach(match => {
                 const local = rows.get(match.equipoLocalId); const visitante = rows.get(match.equipoVisitanteId);
                 if (!local || !visitante) return;
