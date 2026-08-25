@@ -73,10 +73,18 @@ const scenario = `
     if (!blocked) throw new Error('Se permitió un resultado distinto de 2-0 o 2-1.');
     DataManager.updateMatchResult(matches[0].id, 2, 0);
     DataManager.updateMatchResult(matches[1].id, 2, 1);
+    let scoredMatches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
+    const firstScored = scoredMatches.find(match => match.id === matches[0].id);
+    const secondScored = scoredMatches.find(match => match.id === matches[1].id);
+    if (firstScored.puntosLocal !== 3 || firstScored.puntosVisitante !== 1 || firstScored.ganadorId !== firstScored.equipoLocalId) throw new Error('El 2-0 no generó su puntuación interna.');
+    if (secondScored.puntosLocal !== 2 || secondScored.puntosVisitante !== 1 || secondScored.ganadorId !== secondScored.equipoLocalId) throw new Error('El 2-1 no generó su puntuación interna.');
     const table = PosicionesService.calcularPosiciones(tournament.id, category.id);
     if (!table.some(row => row.puntos === 3) || !table.some(row => row.puntos === 2) || !table.some(row => row.puntos === 1)) throw new Error('No se aplicó el puntaje 2-0 / 2-1.');
     if (!table.every(row => Number.isInteger(row.setsFavor) && Number.isInteger(row.setsContra) && Number.isInteger(row.diferenciaSets))) throw new Error('No se calcularon los sets.');
     DataManager.updateMatchResult(matches[0].id, 2, 1);
+    scoredMatches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
+    const editedMatch = scoredMatches.find(match => match.id === matches[0].id);
+    if (editedMatch.puntosLocal !== 2 || editedMatch.puntosVisitante !== 1) throw new Error('La edición del marcador no recalculó la puntuación interna.');
     const updatedTable = PosicionesService.calcularPosiciones(tournament.id, category.id);
     if (updatedTable.reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('La edición duplicó puntos en la tabla.');
     const playoffsInfo = PlayoffsService.generarSemifinales(tournament.id, category.id);
