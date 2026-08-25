@@ -18,6 +18,7 @@ export const PlayoffsService = {
         if (!day) throw new Error('Defina el período del torneo antes de generar eliminatorias.');
         const start = playoffMinutesFromTime(day.inicio);
         if (start + 120 > playoffMinutesFromTime(day.fin)) throw new Error('El último día no tiene dos horas disponibles para las semifinales.');
+        const secondCourt = DataManager.getTournamentCourtCount(torneoId) > 1 ? 'Cancha 2' : 'Cancha 1';
         const [first, second, third, fourth] = standings;
         DataManager.addMatches([
             {
@@ -28,7 +29,7 @@ export const PlayoffsService = {
             {
                 torneoId, categoriaId, zonaId: null, tipo: 'semifinal', nombreEtapa: 'Semifinal 2',
                 equipoLocalId: second.id, equipoVisitanteId: third.id,
-                fecha: day.fecha, hora: playoffTimeFromMinutes(start + 60), cancha: 'Cancha 2', estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
+                fecha: day.fecha, hora: playoffTimeFromMinutes(start + 60), cancha: secondCourt, estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
             }
         ]);
         return { first, second, third, fourth, date: day.fecha };
