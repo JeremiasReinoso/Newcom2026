@@ -98,6 +98,9 @@ const scenario = `
     const final = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).find(match => match.tipo === 'final');
     if (!final || final.equipoLocalId !== playoffs[0].equipoLocalId || final.equipoVisitanteId !== playoffs[1].equipoVisitanteId) throw new Error('La final no usa los ganadores de las semifinales.');
     if (final.fecha !== '2026-09-14' || final.hora !== '16:00') throw new Error('La final no respeta el horario del último día.');
+    DataManager.updateMatchResult(final.id, 2, 1);
+    const finalTable = PosicionesService.calcularClasificacionFinal(tournament.id, category.id);
+    if (!finalTable || finalTable.length !== 4 || finalTable[0].id !== final.equipoLocalId || finalTable[1].id !== final.equipoVisitanteId) throw new Error('La clasificación final no muestra campeón, subcampeón y el resto de los puestos.');
     console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates, playoffsDate: playoffsInfo.date }));
 `;
 
