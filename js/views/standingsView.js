@@ -1,57 +1,17 @@
+import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { PosicionesService } from '../services/standings.js';
 
 export const initStandingsView = () => {
-    const torneo = DataManager.getCurrentTournament();
-    if (!torneo) {
-        alert("No hay torneo activo");
-        return;
-    }
-
-    const categoriaId = DataManager.getCurrentCategory();
-    if (!categoriaId) {
-        alert("Seleccione una categoría primero");
-        return;
-    }
-
-    const posiciones = PosicionesService.calcularPosiciones();
-
-    let html = `
-    <div class="view-section" id="view-posiciones">
-        <div class="container">
-            <h2>Posiciones - ${torneo.nombre}</h2>
-            
-            ${posiciones.length > 0 ? `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Equipo</th>
-                            <th>Zona</th>
-                            <th>PJ</th>
-                            <th>PG</th>
-                            <th>PP</th>
-                            <th>Puntos</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${posiciones.map(p => `
-                            <tr>
-                                <td>${p.nombre}</td>
-                                <td>${p.zonaId ? 'Zona ' + p.zonaId : '—'}</td>
-                                <td>${p.jugados}</td>
-                                <td>${p.ganados}</td>
-                                <td>${p.perdidos}</td>
-                                <td>${p.puntos}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            ` : `
-                <p>Aún no hay resultados cargados. Genere la programación y cargue resultados.</p>
-            `}
-
-            <button class="btn-primary" onclick="initScheduleView()">Volver a Programación</button>
-        </div>
-    </div>`;
-
-    document.getElementById('app').innerHTML = html;
+    let tournamentId;
+    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
+    const container = document.getElementById('posiciones-list');
+    const categoryId = AppState.getCategory();
+    if (!tournamentId || !categoryId) { container.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; return; }
+    const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
+    const rows = PosicionesService.calcularPosiciones(tournamentId, categoryId);
+    container.innerHTML = zones.map(zone => {
+        const tableRows = rows.filter(row => row.zonaId === zone.id).map((row, index) => `<tr><td>${index + 1}</td><td>${row.nombre}</td><td>${row.jugados}</td><td>${row.ganados}</td><td>${row.perdidos}</td><td>${row.puntos}</td></tr>`).join('');
+        return `<section class="card"><h3>${zone.nombre}</h3><table><thead><tr><th>#</th><th>Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>Pts</th></tr></thead><tbody>${tableRows || '<tr><td colspan="6">Sin equipos</td></tr>'}</tbody></table></section>`;
+    }).join('') || '<p>No hay zonas creadas para esta categoría.</p>';
 };
