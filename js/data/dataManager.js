@@ -132,6 +132,7 @@ export const DataManager = {
     getMatchesByScope(torneoId, categoriaId, zonaId) { return this.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => !zonaId || match.zonaId === zonaId); },
     addMatches(matches) {
         const data = this._getStorage();
+        matches.forEach(match => { this._validateMatchPair(match); this._validateMatchDate(match); });
         data.matches.push(...matches.map(match => ({
             id: makeId('partido'), ...match,
             puntosLocal: null,
@@ -142,9 +143,18 @@ export const DataManager = {
     },
     updateMatches(matches) {
         const data = this._getStorage();
+        matches.forEach(match => { this._validateMatchPair(match); this._validateMatchDate(match); });
         const byId = new Map(matches.map(match => [match.id, match]));
         data.matches = data.matches.map(match => byId.get(match.id) || match);
         this._setStorage(data);
+    },
+    _validateMatchDate(match) {
+        if (!match.fecha) return;
+        const dates = this.getCalendarDates(match.torneoId);
+        if (!dates.includes(match.fecha)) throw new Error('La fecha del partido debe estar dentro del período del torneo.');
+    },
+    _validateMatchPair(match) {
+        if (match.equipoLocalId && match.equipoLocalId === match.equipoVisitanteId) throw new Error('Un equipo no puede jugar contra sí mismo.');
     },
     removeMatch(matchId) {
         const data = this._getStorage();
