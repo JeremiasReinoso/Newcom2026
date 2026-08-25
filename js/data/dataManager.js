@@ -5,6 +5,16 @@ let sequence = 0;
 
 const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
 const makeId = (prefix) => `${prefix}_${Date.now()}_${++sequence}`;
+const datesBetween = (startDate, endDate) => {
+    const dates = [];
+    const cursor = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T00:00:00Z`);
+    while (cursor <= end) {
+        dates.push(cursor.toISOString().slice(0, 10));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return dates;
+};
 
 export const DataManager = {
     _getStorage() {
@@ -93,17 +103,46 @@ export const DataManager = {
         data.matches = data.matches.map(match => byId.get(match.id) || match);
         this._setStorage(data);
     },
+    removeMatch(matchId) {
+        const data = this._getStorage();
+        const match = data.matches.find(item => item.id === matchId);
+        if (!match) throw new Error('No se encontró el partido.');
+        if (match.confirmado || match.estado !== 'borrador') throw new Error('Sólo se pueden eliminar emparejamientos en borrador.');
+        data.matches = data.matches.filter(item => item.id !== matchId);
+        this._setStorage(data);
+    },
     updateMatchResult(matchId, setsLocal, setsVisitante) {
         const data = this._getStorage();
         const match = data.matches.find(item => item.id === matchId);
         if (!match) throw new Error('No se encontró el partido.');
+        const local = Number(setsLocal);
+        const visitante = Number(setsVisitante);
+        const valid = (local === 2 && (visitante === 0 || visitante === 1)) || (visitante === 2 && (local === 0 || local === 1));
+        if (!valid) throw new Error('Los únicos resultados válidos son 2-0 o 2-1.');
+        if (!match.confirmado && match.estado !== 'programado' && match.estado !== 'finalizado') throw new Error('El partido debe confirmarse antes de cargar un resultado.');
         match.estado = 'finalizado';
-        match.setsLocal = Number(setsLocal);
-        match.setsVisitante = Number(setsVisitante);
+        match.setsLocal = local;
+        match.setsVisitante = visitante;
         this._setStorage(data);
     },
 
-    getCalendarDates(torneoId) { return this._getStorage().calendar.filter(item => item.torneoId === torneoId).map(item => item.fecha).sort(); },
+    getTournamentPeriod(torneoId) {
+        const tournament = this.getTournament(torneoId);
+        return tournament?.startDate && tournament?.endDate ? { startDate: tournament.startDate, endDate: tournament.endDate } : null;
+    },
+    setTournamentPeriod(torneoId, startDate, endDate) {
+        if (!startDate || !endDate || startDate > endDate) throw new Error('La fecha de inicio debe ser anterior o igual a la fecha final.');
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo.');
+        tournament.startDate = startDate;
+        tournament.endDate = endDate;
+        this._setStorage(data);
+    },
+    getCalendarDates(torneoId) {
+        const period = this.getTournamentPeriod(torneoId);
+        return period ? datesBetween(period.startDate, period.endDate) : this._getStorage().calendar.filter(item => item.torneoId === torneoId).map(item => item.fecha).sort();
+    },
     setCalendarDates(torneoId, fechas) {
         const data = this._getStorage();
         data.calendar = data.calendar.filter(item => item.torneoId !== torneoId);
