@@ -52,12 +52,19 @@ const scenario = `
     const confirmed = SchedulerService.confirmarEmparejamientos(tournament.id, category.id);
     matches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     if (confirmed !== 8 || !matches.every(match => match.confirmado && match.estado === 'pendiente')) throw new Error('La confirmación no oficializó los mismos partidos.');
-    DataManager.setTournamentPeriod(tournament.id, '2026-09-12', '2026-09-14');
+    DataManager.setTournamentCalendar(tournament.id, '2026-09-12', '2026-09-14', '09:00', '21:00', [
+        { fecha: '2026-09-12', inicio: '08:00', fin: '10:00' },
+        { fecha: '2026-09-13', inicio: '11:00', fin: '13:00' },
+        { fecha: '2026-09-14', inicio: '14:00', fin: '17:00' }
+    ]);
     const dates = DataManager.getCalendarDates(tournament.id);
     if (dates.join(',') !== '2026-09-12,2026-09-13,2026-09-14') throw new Error('El período del torneo no generó sus tres días.');
+    const daySchedules = DataManager.getDaySchedules(tournament.id);
+    if (daySchedules.map(day => day.fecha + ':' + day.inicio + '-' + day.fin).join(',') !== '2026-09-12:08:00-10:00,2026-09-13:11:00-13:00,2026-09-14:14:00-17:00') throw new Error('No se guardaron los horarios independientes por día.');
     const scheduled = SchedulerService.programarEmparejamientos(tournament.id, category.id);
     matches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
-    if (scheduled !== 8 || matches.some(match => !match.fecha || !match.hora || !match.cancha || match.estado !== 'pendiente' || !dates.includes(match.fecha))) throw new Error('La programación está incompleta o sale del período.');
+    const scheduleByDate = new Map(daySchedules.map(day => [day.fecha, day]));
+    if (scheduled !== 8 || matches.some(match => !match.fecha || !match.hora || !match.cancha || match.estado !== 'pendiente' || !scheduleByDate.has(match.fecha) || match.hora < scheduleByDate.get(match.fecha).inicio || match.hora >= scheduleByDate.get(match.fecha).fin)) throw new Error('La programación está incompleta o sale de los horarios configurados.');
     blocked = false;
     try { DataManager.updateMatchResult(matches[0].id, 1, 0); } catch { blocked = true; }
     if (!blocked) throw new Error('Se permitió un resultado distinto de 2-0 o 2-1.');
@@ -72,12 +79,14 @@ const scenario = `
     const playoffsInfo = PlayoffsService.generarSemifinales(tournament.id, category.id);
     let playoffs = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).filter(match => match.tipo === 'semifinal');
     if (playoffs.length !== 2 || playoffs[0].equipoLocalId !== updatedTable[0].id || playoffs[0].equipoVisitanteId !== updatedTable[3].id || playoffs[1].equipoLocalId !== updatedTable[1].id || playoffs[1].equipoVisitanteId !== updatedTable[2].id) throw new Error('Las semifinales no usan los cuatro primeros de la tabla general.');
+    if (playoffs[0].fecha !== '2026-09-14' || playoffs[0].hora !== '14:00' || playoffs[1].hora !== '15:00') throw new Error('Las semifinales no respetan el horario del último día.');
     DataManager.updateMatchResult(playoffs[0].id, 2, 0);
     DataManager.updateMatchResult(playoffs[1].id, 1, 2);
     if (PosicionesService.calcularPosiciones(tournament.id, category.id).reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('Las eliminatorias alteraron la clasificación general.');
     PlayoffsService.generarFinal(tournament.id, category.id);
     const final = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).find(match => match.tipo === 'final');
     if (!final || final.equipoLocalId !== playoffs[0].equipoLocalId || final.equipoVisitanteId !== playoffs[1].equipoVisitanteId) throw new Error('La final no usa los ganadores de las semifinales.');
+    if (final.fecha !== '2026-09-14' || final.hora !== '16:00') throw new Error('La final no respeta el horario del último día.');
     console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates, playoffsDate: playoffsInfo.date }));
 `;
 
