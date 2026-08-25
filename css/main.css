@@ -1,0 +1,133 @@
+/* Estilos base de NEWCOM */
+:root {
+    --primary-color: #0056b3;
+    --primary-hover: #004494;
+    --bg-color: #f4f7f6;
+    --text-color: #333333;
+    --text-muted: #666666;
+    --border-color: #cccccc;
+    --bg-card: #ffffff;
+    --success: #28a745;
+    --danger: #dc3545;
+    --font-base: 18px;
+    --spacing-sm: 10px;
+    --spacing-md: 20px;
+    --spacing-lg: 30px;
+    --radius: 8px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-size: var(--font-base);
+    line-height: 1.6;
+}
+
+h1, h2, h3 {
+    color: var(--primary-color);
+    margin-bottom: var(--spacing-md);
+}
+
+/* Botones Accesibles */
+button {
+    font-family: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+    border: none;
+    border-radius: var(--radius);
+    padding: 12px 24px;
+    transition: background-color 0.2s;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+    font-weight: bold;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: var(--primary-hover);
+}
+
+.btn-large {
+    font-size: 1.2rem;
+    padding: 16px 32px;
+    width: 100%;
+    max-width: 400px;
+    display: block;
+    margin: var(--spacing-lg) auto;
+}
+
+/* Estilos para pestañas (tabs) */
+.tabs-container {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 20px 0;
+}
+
+.btn-tab {
+    padding: 10px 20px;
+    border: 1px solid var(--primary-color);
+    background: white;
+    color: var(--primary-color);
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+
+.btn-tab.active {
+    background: var(--primary-color);
+    color: white;
+}
+
+/* Estilos para calendario */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.calendar-day {
+    padding: 20px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius);
+    text-align: center;
+    cursor: pointer;
+    background: var(--bg-card);
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+.calendar-day.selected {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-hover);
+}
+
+.calendar-day.disabled {
+    background: #eee;
+    color: #aaa;
+    cursor: not-allowed;
+}
+
+/* Utilidades adicionales */
+.panel-control {
+    background: var(--bg-card);
+    padding: var(--spacing-md);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+    margin-bottom: var(--spacing-md);
+}
