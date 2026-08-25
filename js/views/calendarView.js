@@ -12,19 +12,37 @@ export function initCalendarView() {
         grid.innerHTML = '';
         return;
     }
+    const tournament = DataManager.getTournament(tournamentId);
     const period = DataManager.getTournamentPeriod(tournamentId);
-    const dates = DataManager.getCalendarDates(tournamentId);
+    const defaultStart = tournament.horaInicio || '09:00';
+    const defaultEnd = tournament.horaFin || '21:00';
+    const daySchedules = DataManager.getDaySchedules(tournamentId);
     controls.innerHTML = `
-        <p>Defina el período completo del torneo. La programación sólo podrá utilizar los días comprendidos entre ambas fechas.</p>
+        <p>Defina el período y el horario predeterminado. Luego puede cambiar libremente la franja de cada día.</p>
         <label>Fecha de inicio <input id="fecha-inicio" type="date" value="${period?.startDate || ''}"></label>
         <label>Fecha de finalización <input id="fecha-fin" type="date" value="${period?.endDate || ''}"></label>
-        <button id="guardar-periodo" class="btn-primary">Guardar período</button>`;
-    grid.innerHTML = dates.length
-        ? `<p><strong>${dates.length} días disponibles:</strong></p>${dates.map(date => `<div class="calendar-day selected">${date}</div>`).join('')}`
-        : '<p>Aún no hay período definido.</p>';
+        <label>Horario predeterminado: desde <input id="hora-inicio" type="time" value="${defaultStart}"></label>
+        <label>hasta <input id="hora-fin" type="time" value="${defaultEnd}"></label>
+        <button id="guardar-periodo" class="btn-primary">Guardar calendario y horarios</button>`;
+    grid.innerHTML = daySchedules.length ? `
+        <p><strong>Disponibilidad por día</strong></p>
+        ${daySchedules.map(({ fecha, inicio, fin }) => `<article class="card"><strong>${fecha}</strong><label> Desde <input class="horario-dia-inicio" data-fecha="${fecha}" type="time" value="${inicio}"></label><label> Hasta <input class="horario-dia-fin" data-fecha="${fecha}" type="time" value="${fin}"></label></article>`).join('')}`
+        : '<p>Guarde el período para configurar los horarios particulares de cada día.</p>';
     document.getElementById('guardar-periodo').addEventListener('click', () => {
+        const schedules = daySchedules.map(({ fecha }) => ({
+            fecha,
+            inicio: document.querySelector(`.horario-dia-inicio[data-fecha="${fecha}"]`)?.value,
+            fin: document.querySelector(`.horario-dia-fin[data-fecha="${fecha}"]`)?.value
+        })).filter(schedule => schedule.inicio && schedule.fin);
         try {
-            DataManager.setTournamentPeriod(tournamentId, document.getElementById('fecha-inicio').value, document.getElementById('fecha-fin').value);
+            DataManager.setTournamentCalendar(
+                tournamentId,
+                document.getElementById('fecha-inicio').value,
+                document.getElementById('fecha-fin').value,
+                document.getElementById('hora-inicio').value,
+                document.getElementById('hora-fin').value,
+                schedules
+            );
             initCalendarView();
         } catch (error) { alert(error.message); }
     });
