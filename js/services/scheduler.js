@@ -103,24 +103,33 @@ export const SchedulerService = {
         if (!toSchedule.length) return 0;
         // Con varios días, el último queda reservado para las eliminatorias.
         const groupDays = daySchedules.length > 1 ? daySchedules.slice(0, -1) : daySchedules;
-        const slots = [];
+        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
+        const timeSlots = [];
         groupDays.forEach(({ fecha, inicio, fin }) => {
             for (let minute = schedulerMinutesFromTime(inicio); minute + 60 <= schedulerMinutesFromTime(fin); minute += 60) {
-                ['Cancha 1', 'Cancha 2'].forEach(cancha => slots.push({ fecha, hora: schedulerTimeFromMinutes(minute), cancha }));
+                timeSlots.push({ fecha, hora: schedulerTimeFromMinutes(minute) });
             }
         });
-        if (slots.length < toSchedule.length) throw new Error('No hay franjas suficientes en los días disponibles.');
+        if (timeSlots.length * courts.length < toSchedule.length) throw new Error('No hay franjas suficientes en los días y canchas disponibles.');
         const scheduled = [];
-        let slotIndex = 0;
-        for (const match of toSchedule) {
-            let assigned = false;
-            while (slotIndex < slots.length) {
-                const slot = slots[slotIndex++];
-                const conflict = scheduled.some(other => other.fecha === slot.fecha && other.hora === slot.hora && [other.equipoLocalId, other.equipoVisitanteId].some(id => id === match.equipoLocalId || id === match.equipoVisitanteId));
-                if (!conflict) { scheduled.push({ ...match, ...slot, estado: 'pendiente', confirmado: true }); assigned = true; break; }
+        const remaining = toSchedule.slice();
+        const courtLoads = new Map(courts.map(court => [court, 0]));
+        for (const slot of timeSlots) {
+            const busyTeams = new Set();
+            const availableCourts = courts.slice();
+            while (availableCourts.length) {
+                const matchIndex = remaining.findIndex(match => !busyTeams.has(match.equipoLocalId) && !busyTeams.has(match.equipoVisitanteId));
+                if (matchIndex === -1) break;
+                const [match] = remaining.splice(matchIndex, 1);
+                availableCourts.sort((a, b) => courtLoads.get(a) - courtLoads.get(b) || a.localeCompare(b));
+                const cancha = availableCourts.shift();
+                scheduled.push({ ...match, ...slot, cancha, estado: 'pendiente', confirmado: true });
+                courtLoads.set(cancha, courtLoads.get(cancha) + 1);
+                busyTeams.add(match.equipoLocalId);
+                busyTeams.add(match.equipoVisitanteId);
             }
-            if (!assigned) throw new Error('No se pudieron programar todos los emparejamientos sin superponer equipos.');
         }
+        if (remaining.length) throw new Error('No se pudieron programar todos los emparejamientos sin superponer equipos.');
         DataManager.updateMatches(scheduled);
         return scheduled.length;
     }
