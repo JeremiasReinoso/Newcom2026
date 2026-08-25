@@ -21,5 +21,25 @@ export const PosicionesService = {
         return [...rows.values()]
             .map(row => ({ ...row, diferenciaSets: row.setsFavor - row.setsContra }))
             .sort((a, b) => b.puntos - a.puntos || b.ganados - a.ganados || b.diferenciaSets - a.diferenciaSets || a.nombre.localeCompare(b.nombre));
+    },
+
+    calcularClasificacionFinal(torneoId, categoriaId) {
+        const general = this.calcularPosiciones(torneoId, categoriaId);
+        const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
+        const final = matches.find(match => match.tipo === 'final' && match.estado === 'finalizado' && match.ganadorId);
+        if (!final) return null;
+
+        const runnerUpId = final.ganadorId === final.equipoLocalId ? final.equipoVisitanteId : final.equipoLocalId;
+        const generalIndex = new Map(general.map((team, index) => [team.id, index]));
+        const semifinalLosers = matches
+            .filter(match => match.tipo === 'semifinal' && match.estado === 'finalizado' && match.ganadorId)
+            .map(match => match.ganadorId === match.equipoLocalId ? match.equipoVisitanteId : match.equipoLocalId)
+            .sort((left, right) => (generalIndex.get(left) ?? Infinity) - (generalIndex.get(right) ?? Infinity));
+        const finalOrder = [final.ganadorId, runnerUpId, ...semifinalLosers];
+        const orderedIds = [...new Set(finalOrder)];
+        return [
+            ...orderedIds.map(id => general.find(team => team.id === id)).filter(Boolean),
+            ...general.filter(team => !orderedIds.includes(team.id))
+        ];
     }
 };
