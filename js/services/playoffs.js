@@ -1,7 +1,7 @@
 import { DataManager } from '../data/dataManager.js';
 import { PosicionesService } from './standings.js';
 
-const winnerOf = match => match.setsLocal > match.setsVisitante ? match.equipoLocalId : match.equipoVisitanteId;
+const winnerOf = match => match.ganadorId;
 const playoffMinutesFromTime = time => {
     const [hour, minute] = time.split(':').map(Number);
     return hour * 60 + minute;
@@ -39,7 +39,7 @@ export const PlayoffsService = {
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
         if (matches.some(match => match.tipo === 'final')) throw new Error('La final ya fue generada para esta categoría.');
         const semifinals = matches.filter(match => match.tipo === 'semifinal');
-        if (semifinals.length !== 2 || semifinals.some(match => match.estado !== 'finalizado')) throw new Error('Registre los resultados de las dos semifinales antes de generar la final.');
+        if (semifinals.length !== 2 || semifinals.some(match => match.estado !== 'finalizado' || !winnerOf(match))) throw new Error('Registre los resultados de las dos semifinales antes de generar la final.');
         const day = DataManager.getDaySchedules(torneoId).at(-1);
         if (!day) throw new Error('Defina el período del torneo antes de generar eliminatorias.');
         const finalStart = playoffMinutesFromTime(day.inicio) + 120;
