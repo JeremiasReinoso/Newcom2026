@@ -1,5 +1,6 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { SchedulerService } from '../services/scheduler.js';
 
 export function initCalendarView() {
     let tournamentId;
@@ -43,6 +44,8 @@ export function initCalendarView() {
                 document.getElementById('hora-fin').value,
                 schedules
             );
+            const categoryId = AppState.getCategory();
+            if (categoryId) SchedulerService.redistribuirFechas(tournamentId, categoryId);
             initCalendarView();
         } catch (error) { alert(error.message); }
     });
