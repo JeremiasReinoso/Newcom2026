@@ -7,6 +7,26 @@ const playoffMinutesFromTime = time => {
     return hour * 60 + minute;
 };
 const playoffTimeFromMinutes = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+const slotsForDay = day => {
+    const slots = [];
+    for (let minute = playoffMinutesFromTime(day.inicio); minute + 60 <= playoffMinutesFromTime(day.fin); minute += 60) slots.push(playoffTimeFromMinutes(minute));
+    return slots;
+};
+const canUseSlot = (match, hora, cancha, scheduled) => !scheduled.some(existing => {
+    if (existing.hora !== hora) return false;
+    if (existing.cancha === cancha) return true;
+    return [existing.equipoLocalId, existing.equipoVisitanteId].includes(match.equipoLocalId)
+        || [existing.equipoLocalId, existing.equipoVisitanteId].includes(match.equipoVisitanteId);
+});
+const findSlot = (match, slots, courts, scheduled, minimumMinute = 0) => {
+    for (const hora of slots) {
+        if (playoffMinutesFromTime(hora) < minimumMinute) continue;
+        for (const cancha of courts) {
+            if (canUseSlot(match, hora, cancha, scheduled)) return { hora, cancha };
+        }
+    }
+    return null;
+};
 
 export const PlayoffsService = {
     generarSemifinales(torneoId, categoriaId) {
@@ -16,20 +36,28 @@ export const PlayoffsService = {
         if (existing.length) throw new Error('Las semifinales ya fueron generadas para esta categoría.');
         const day = DataManager.getDaySchedules(torneoId).at(-1);
         if (!day) throw new Error('Defina el período del torneo antes de generar eliminatorias.');
-        const start = playoffMinutesFromTime(day.inicio);
-        if (start + 120 > playoffMinutesFromTime(day.fin)) throw new Error('El último día no tiene dos horas disponibles para las semifinales.');
-        const secondCourt = DataManager.getTournamentCourtCount(torneoId) > 1 ? 'Cancha 2' : 'Cancha 1';
+        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
+        const slots = slotsForDay(day);
+        const scheduled = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
+            .filter(match => match.fecha === day.fecha && match.hora && match.cancha);
         const [first, second, third, fourth] = standings;
+        const semiOne = { equipoLocalId: first.id, equipoVisitanteId: fourth.id };
+        const semiOneSlot = findSlot(semiOne, slots, courts, scheduled);
+        if (!semiOneSlot) throw new Error('El último día no tiene una franja libre para la primera semifinal.');
+        scheduled.push({ ...semiOne, ...semiOneSlot });
+        const semiTwo = { equipoLocalId: second.id, equipoVisitanteId: third.id };
+        const semiTwoSlot = findSlot(semiTwo, slots, courts, scheduled);
+        if (!semiTwoSlot) throw new Error('El último día no tiene una franja libre para la segunda semifinal.');
         DataManager.addMatches([
             {
                 torneoId, categoriaId, zonaId: null, tipo: 'semifinal', nombreEtapa: 'Semifinal 1',
                 equipoLocalId: first.id, equipoVisitanteId: fourth.id,
-                fecha: day.fecha, hora: playoffTimeFromMinutes(start), cancha: 'Cancha 1', estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
+                fecha: day.fecha, hora: semiOneSlot.hora, cancha: semiOneSlot.cancha, estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
             },
             {
                 torneoId, categoriaId, zonaId: null, tipo: 'semifinal', nombreEtapa: 'Semifinal 2',
                 equipoLocalId: second.id, equipoVisitanteId: third.id,
-                fecha: day.fecha, hora: playoffTimeFromMinutes(start + 60), cancha: secondCourt, estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
+                fecha: day.fecha, hora: semiTwoSlot.hora, cancha: semiTwoSlot.cancha, estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
             }
         ]);
         return { first, second, third, fourth, date: day.fecha };
@@ -42,12 +70,16 @@ export const PlayoffsService = {
         if (semifinals.length !== 2 || semifinals.some(match => match.estado !== 'finalizado' || !winnerOf(match))) throw new Error('Registre los resultados de las dos semifinales antes de generar la final.');
         const day = DataManager.getDaySchedules(torneoId).at(-1);
         if (!day) throw new Error('Defina el período del torneo antes de generar eliminatorias.');
-        const finalStart = playoffMinutesFromTime(day.inicio) + 120;
-        if (finalStart + 60 > playoffMinutesFromTime(day.fin)) throw new Error('El último día no tiene una hora disponible para la final.');
+        const finalMatch = { equipoLocalId: winnerOf(semifinals[0]), equipoVisitanteId: winnerOf(semifinals[1]) };
+        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
+        const scheduled = matches.filter(match => match.fecha === day.fecha && match.hora && match.cancha);
+        const afterSemifinals = Math.max(...semifinals.map(match => playoffMinutesFromTime(match.hora))) + 60;
+        const finalSlot = findSlot(finalMatch, slotsForDay(day), courts, scheduled, afterSemifinals);
+        if (!finalSlot) throw new Error('El último día no tiene una franja libre para la final.');
         DataManager.addMatches([{
             torneoId, categoriaId, zonaId: null, tipo: 'final', nombreEtapa: 'Final',
-            equipoLocalId: winnerOf(semifinals[0]), equipoVisitanteId: winnerOf(semifinals[1]),
-            fecha: day.fecha, hora: playoffTimeFromMinutes(finalStart), cancha: 'Cancha 1', estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
+            ...finalMatch,
+            fecha: day.fecha, hora: finalSlot.hora, cancha: finalSlot.cancha, estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
         }]);
     }
 };
