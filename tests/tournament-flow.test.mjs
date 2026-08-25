@@ -19,6 +19,10 @@ const scheduler = load('js/services/scheduler.js')
 const standings = load('js/services/standings.js')
     .replace("import { DataManager } from '../data/dataManager.js';", '')
     .replace('export const PosicionesService', 'const PosicionesService');
+const playoffs = load('js/services/playoffs.js')
+    .replace("import { DataManager } from '../data/dataManager.js';", '')
+    .replace("import { PosicionesService } from './standings.js';", '')
+    .replace('export const PlayoffsService', 'const PlayoffsService');
 
 const scenario = `
     const tournament = DataManager.createTournament('Prueba +50', 4);
@@ -65,7 +69,16 @@ const scenario = `
     DataManager.updateMatchResult(matches[0].id, 2, 1);
     const updatedTable = PosicionesService.calcularPosiciones(tournament.id, category.id);
     if (updatedTable.reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('La edición duplicó puntos en la tabla.');
-    console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates }));
+    const playoffsInfo = PlayoffsService.generarSemifinales(tournament.id, category.id);
+    let playoffs = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).filter(match => match.tipo === 'semifinal');
+    if (playoffs.length !== 2 || playoffs[0].equipoLocalId !== updatedTable[0].id || playoffs[0].equipoVisitanteId !== updatedTable[3].id || playoffs[1].equipoLocalId !== updatedTable[1].id || playoffs[1].equipoVisitanteId !== updatedTable[2].id) throw new Error('Las semifinales no usan los cuatro primeros de la tabla general.');
+    DataManager.updateMatchResult(playoffs[0].id, 2, 0);
+    DataManager.updateMatchResult(playoffs[1].id, 1, 2);
+    if (PosicionesService.calcularPosiciones(tournament.id, category.id).reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('Las eliminatorias alteraron la clasificación general.');
+    PlayoffsService.generarFinal(tournament.id, category.id);
+    const final = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).find(match => match.tipo === 'final');
+    if (!final || final.equipoLocalId !== playoffs[0].equipoLocalId || final.equipoVisitanteId !== playoffs[1].equipoVisitanteId) throw new Error('La final no usa los ganadores de las semifinales.');
+    console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates, playoffsDate: playoffsInfo.date }));
 `;
 
-await import(`data:text/javascript;base64,${Buffer.from(`${dataManager}\n${scheduler}\n${standings}\n${scenario}`).toString('base64')}`);
+await import(`data:text/javascript;base64,${Buffer.from(`${dataManager}\n${scheduler}\n${standings}\n${playoffs}\n${scenario}`).toString('base64')}`);
