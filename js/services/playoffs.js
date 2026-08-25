@@ -1,65 +1,44 @@
+import { DataManager } from '../data/dataManager.js';
 import { PosicionesService } from './standings.js';
-import { CalendarRepo } from '../data/calendarRepo.js';
-import { AppState } from '../core/state.js';
+
+const winnerOf = match => match.setsLocal > match.setsVisitante ? match.equipoLocalId : match.equipoVisitanteId;
 
 export const PlayoffsService = {
-    generar: async () => {
-        const posiciones = await PosicionesService.calcular();
-        const fechasObj = await CalendarRepo.obtenerPorTorneo();
-        
-        if (!fechasObj || fechasObj.length === 0) {
-            throw new Error("Falta configurar el calendario.");
-        }
-
-        const fechasOrdenadas = fechasObj.map(f => f.fecha).sort();
-        const ultimoDia = fechasOrdenadas[fechasOrdenadas.length - 1];
-        
-        const zonasIds = [...new Set(posiciones.map(p => p.zona_id))];
-        if (zonasIds.length < 2) {
-            throw new Error("Se necesitan al menos 2 zonas.");
-        }
-
-        const zonaA = posiciones.filter(p => p.zona_id === zonasIds[0]).slice(0, 2);
-        const zonaB = posiciones.filter(p => p.zona_id === zonasIds[1]).slice(0, 2);
-
-        if (zonaA.length < 2 || zonaB.length < 2) {
-            throw new Error("Faltan equipos para armar las semifinales.");
-        }
-
-        const torneoId = AppState.getTournament();
-        const categoriaId = AppState.getCategory();
-
-        return [
+    generarSemifinales(torneoId, categoriaId) {
+        const standings = PosicionesService.calcularPosiciones(torneoId, categoriaId);
+        if (standings.length < 4) throw new Error('Se necesitan al menos cuatro equipos en la clasificación general.');
+        const existing = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.tipo === 'semifinal');
+        if (existing.length) throw new Error('Las semifinales ya fueron generadas para esta categoría.');
+        const dates = DataManager.getCalendarDates(torneoId);
+        if (!dates.length) throw new Error('Defina el período del torneo antes de generar eliminatorias.');
+        const date = dates[dates.length - 1];
+        const [first, second, third, fourth] = standings;
+        DataManager.addMatches([
             {
-                torneo_id: torneoId,
-                categoria_id: categoriaId,
-                zona_id: null,
-                tipo: 'semifinal',
-                equipo_local_id: zonaA[0].id,
-                equipo_visitante_id: zonaB[1].id,
-                local_nombre: zonaA[0].nombre,
-                visitante_nombre: zonaB[1].nombre,
-                zona_nombre: 'Semifinal 1',
-                fecha: ultimoDia,
-                hora: '10:00',
-                cancha: 'Cancha 1',
-                estado: 'pendiente'
+                torneoId, categoriaId, zonaId: null, tipo: 'semifinal', nombreEtapa: 'Semifinal 1',
+                equipoLocalId: first.id, equipoVisitanteId: fourth.id,
+                fecha: date, hora: '18:00', cancha: 'Cancha 1', estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
             },
             {
-                torneo_id: torneoId,
-                categoria_id: categoriaId,
-                zona_id: null,
-                tipo: 'semifinal',
-                equipo_local_id: zonaB[0].id,
-                equipo_visitante_id: zonaA[1].id,
-                local_nombre: zonaB[0].nombre,
-                visitante_nombre: zonaA[1].nombre,
-                zona_nombre: 'Semifinal 2',
-                fecha: ultimoDia,
-                hora: '11:00',
-                cancha: 'Cancha 2',
-                estado: 'pendiente'
+                torneoId, categoriaId, zonaId: null, tipo: 'semifinal', nombreEtapa: 'Semifinal 2',
+                equipoLocalId: second.id, equipoVisitanteId: third.id,
+                fecha: date, hora: '19:00', cancha: 'Cancha 2', estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
             }
-        ];
+        ]);
+        return { first, second, third, fourth, date };
+    },
+
+    generarFinal(torneoId, categoriaId) {
+        const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
+        if (matches.some(match => match.tipo === 'final')) throw new Error('La final ya fue generada para esta categoría.');
+        const semifinals = matches.filter(match => match.tipo === 'semifinal');
+        if (semifinals.length !== 2 || semifinals.some(match => match.estado !== 'finalizado')) throw new Error('Registre los resultados de las dos semifinales antes de generar la final.');
+        const dates = DataManager.getCalendarDates(torneoId);
+        if (!dates.length) throw new Error('Defina el período del torneo antes de generar eliminatorias.');
+        DataManager.addMatches([{
+            torneoId, categoriaId, zonaId: null, tipo: 'final', nombreEtapa: 'Final',
+            equipoLocalId: winnerOf(semifinals[0]), equipoVisitanteId: winnerOf(semifinals[1]),
+            fecha: dates[dates.length - 1], hora: '20:00', cancha: 'Cancha 1', estado: 'pendiente', confirmado: true, setsLocal: null, setsVisitante: null
+        }]);
     }
 };
