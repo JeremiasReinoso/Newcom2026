@@ -56,7 +56,7 @@ export const SchedulerService = {
                     const key = pairKey(local.id, visitante.id);
                     // Las repeticiones sólo se habilitan tras agotar cruces únicos.
                     if (isFirstCycle && pairsSeen.has(key)) return;
-                    pending.push({ torneoId, categoriaId, zonaId: zone.id, equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
+                    pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
                     counts.set(local.id, counts.get(local.id) + 1);
                     counts.set(visitante.id, counts.get(visitante.id) + 1);
                     pairsSeen.add(key);
