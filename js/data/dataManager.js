@@ -15,6 +15,11 @@ const datesBetween = (startDate, endDate) => {
     }
     return dates;
 };
+const minutesFromTime = time => {
+    const [hour, minute] = String(time).split(':').map(Number);
+    return hour * 60 + minute;
+};
+const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
 
 export const DataManager = {
     _getStorage() {
@@ -137,6 +142,38 @@ export const DataManager = {
         if (!tournament) throw new Error('No se encontró el torneo.');
         tournament.startDate = startDate;
         tournament.endDate = endDate;
+        this._setStorage(data);
+    },
+    getDaySchedules(torneoId) {
+        const tournament = this.getTournament(torneoId);
+        const defaultStart = tournament?.horaInicio || '09:00';
+        const defaultEnd = tournament?.horaFin || '21:00';
+        const saved = tournament?.horariosPorDia || {};
+        return this.getCalendarDates(torneoId).map(fecha => ({
+            fecha,
+            inicio: saved[fecha]?.inicio || defaultStart,
+            fin: saved[fecha]?.fin || defaultEnd
+        }));
+    },
+    setTournamentCalendar(torneoId, startDate, endDate, defaultStart, defaultEnd, schedules) {
+        if (!startDate || !endDate || startDate > endDate) throw new Error('La fecha de inicio debe ser anterior o igual a la fecha final.');
+        if (!validHours(defaultStart, defaultEnd)) throw new Error('El horario predeterminado debe tener una hora de inicio anterior a la finalización.');
+        const dates = datesBetween(startDate, endDate);
+        const byDate = Object.fromEntries((schedules || []).map(schedule => [schedule.fecha, schedule]));
+        const horariosPorDia = {};
+        dates.forEach(fecha => {
+            const schedule = byDate[fecha] || { inicio: defaultStart, fin: defaultEnd };
+            if (!validHours(schedule.inicio, schedule.fin)) throw new Error(`El horario de ${fecha} no es válido.`);
+            horariosPorDia[fecha] = { inicio: schedule.inicio, fin: schedule.fin };
+        });
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo.');
+        tournament.startDate = startDate;
+        tournament.endDate = endDate;
+        tournament.horaInicio = defaultStart;
+        tournament.horaFin = defaultEnd;
+        tournament.horariosPorDia = horariosPorDia;
         this._setStorage(data);
     },
     getCalendarDates(torneoId) {
