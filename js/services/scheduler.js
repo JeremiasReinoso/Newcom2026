@@ -18,6 +18,11 @@ const roundRobinRounds = (teams) => {
 };
 const pairKey = (a, b) => [a, b].sort().join(':');
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
+const schedulerMinutesFromTime = time => {
+    const [hour, minute] = time.split(':').map(Number);
+    return hour * 60 + minute;
+};
+const schedulerTimeFromMinutes = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 export const SchedulerService = {
     // Emparejamiento: determina únicamente quién juega contra quién, por zona.
@@ -88,8 +93,8 @@ export const SchedulerService = {
 
     // Programación: asigna fecha, hora y cancha a emparejamientos ya calculados.
     programarEmparejamientos(torneoId, categoriaId) {
-        const dates = DataManager.getCalendarDates(torneoId);
-        if (!dates.length) throw new Error('Configure al menos un día en Calendario.');
+        const daySchedules = DataManager.getDaySchedules(torneoId);
+        if (!daySchedules.length) throw new Error('Configure al menos un día en Calendario.');
         const allMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
         if (allMatches.some(match => !isOfficialMatch(match))) throw new Error('Confirme los emparejamientos antes de programarlos.');
         const verification = this.verificarPartidosAsegurados(torneoId, categoriaId, true);
@@ -97,10 +102,12 @@ export const SchedulerService = {
         const toSchedule = allMatches.filter(match => isOfficialMatch(match) && !match.fecha && match.estado !== 'finalizado');
         if (!toSchedule.length) return 0;
         // Con varios días, el último queda reservado para las eliminatorias.
-        const groupDates = dates.length > 1 ? dates.slice(0, -1) : dates;
+        const groupDays = daySchedules.length > 1 ? daySchedules.slice(0, -1) : daySchedules;
         const slots = [];
-        groupDates.forEach(fecha => {
-            for (let hour = 9; hour <= 20; hour += 1) ['Cancha 1', 'Cancha 2'].forEach(cancha => slots.push({ fecha, hora: `${String(hour).padStart(2, '0')}:00`, cancha }));
+        groupDays.forEach(({ fecha, inicio, fin }) => {
+            for (let minute = schedulerMinutesFromTime(inicio); minute + 60 <= schedulerMinutesFromTime(fin); minute += 60) {
+                ['Cancha 1', 'Cancha 2'].forEach(cancha => slots.push({ fecha, hora: schedulerTimeFromMinutes(minute), cancha }));
+            }
         });
         if (slots.length < toSchedule.length) throw new Error('No hay franjas suficientes en los días disponibles.');
         const scheduled = [];
