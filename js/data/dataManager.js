@@ -144,6 +144,18 @@ export const DataManager = {
         tournament.endDate = endDate;
         this._setStorage(data);
     },
+    getTournamentCourtCount(torneoId) {
+        return this.getTournament(torneoId)?.cantidadCanchas || 2;
+    },
+    setTournamentCourtCount(torneoId, cantidadCanchas) {
+        const count = Number(cantidadCanchas);
+        if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error('Ingrese entre 1 y 20 canchas disponibles.');
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo.');
+        tournament.cantidadCanchas = count;
+        this._setStorage(data);
+    },
     getDaySchedules(torneoId) {
         const tournament = this.getTournament(torneoId);
         const defaultStart = tournament?.horaInicio || '09:00';
