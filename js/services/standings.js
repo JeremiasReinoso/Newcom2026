@@ -1,56 +1,45 @@
 import { DataManager } from '../data/dataManager.js';
 
 export const PosicionesService = {
-    calcularPosiciones: () => {
-        const torneo = DataManager.getCurrentTournament();
-        if (!torneo) return [];
+    calcularPosiciones(torneoId, categoriaId) {
+        const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
+        const rows = new Map(teams.map(team => [team.id, { ...team, jugados: 0, ganados: 0, perdidos: 0, puntos: 0, setsFavor: 0, setsContra: 0, diferenciaSets: 0 }]));
+        DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
+            .filter(match => match.estado === 'finalizado' && (!match.tipo || match.tipo === 'fase_zonas') && Number.isFinite(match.puntosLocal) && Number.isFinite(match.puntosVisitante) && match.ganadorId)
+            .forEach(match => {
+                const local = rows.get(match.equipoLocalId); const visitante = rows.get(match.equipoVisitanteId);
+                if (!local || !visitante) return;
+                local.jugados += 1; visitante.jugados += 1;
+                local.setsFavor += match.setsLocal; local.setsContra += match.setsVisitante;
+                visitante.setsFavor += match.setsVisitante; visitante.setsContra += match.setsLocal;
+                const winner = match.ganadorId === local.id ? local : visitante;
+                const loser = match.ganadorId === local.id ? visitante : local;
+                winner.ganados += 1; loser.perdidos += 1;
+                local.puntos += match.puntosLocal;
+                visitante.puntos += match.puntosVisitante;
+            });
+        return [...rows.values()]
+            .map(row => ({ ...row, diferenciaSets: row.setsFavor - row.setsContra }))
+            .sort((a, b) => b.puntos - a.puntos || b.ganados - a.ganados || b.diferenciaSets - a.diferenciaSets || a.nombre.localeCompare(b.nombre));
+    },
 
-        const categoriaId = DataManager.getCurrentCategory();
-        if (!categoriaId) return [];
+    calcularClasificacionFinal(torneoId, categoriaId) {
+        const general = this.calcularPosiciones(torneoId, categoriaId);
+        const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
+        const final = matches.find(match => match.tipo === 'final' && match.estado === 'finalizado' && match.ganadorId);
+        if (!final) return null;
 
-        const matches = DataManager.getMatchesByTournament(torneo.id).filter(
-            m => m.estado === 'finalizado' && m.categoriaId === categoriaId
-        );
-
-        const equipos = DataManager.getTeamsByCategory(categoriaId);
-        const standings = {};
-
-        equipos.forEach(t => {
-            standings[t.id] = {
-                equipoId: t.id,
-                nombre: t.nombre,
-                zonaId: t.zonaId,
-                jugados: 0,
-                ganados: 0,
-                perdidos: 0,
-                puntos: 0
-            };
-        });
-
-        matches.forEach(m => {
-            const local = standings[m.equipoLocalId];
-            const visitante = standings[m.equipoVisitanteId];
-            if (!local || !visitante) return;
-
-            local.jugados++;
-            visitante.jugados++;
-
-            if (m.setsLocal === 2 && m.setsVisitante === 0) {
-                local.ganados++; local.puntos += 3;
-                visitante.perdidos++;
-            } else if (m.setsLocal === 2 && m.setsVisitante === 1) {
-                local.ganados++; local.puntos += 2;
-                visitante.perdidos++;
-            } else if (m.setsLocal === 0 && m.setsVisitante === 2) {
-                visitante.ganados++; visitante.puntos += 3;
-                local.perdidos++;
-            } else if (m.setsLocal === 1 && m.setsVisitante === 2) {
-                visitante.ganados++; visitante.puntos += 2;
-                local.perdidos++;
-            }
-        });
-
-        return Object.values(standings)
-            .sort((a, b) => b.puntos - a.puntos || b.ganados - a.ganados);
+        const runnerUpId = final.ganadorId === final.equipoLocalId ? final.equipoVisitanteId : final.equipoLocalId;
+        const generalIndex = new Map(general.map((team, index) => [team.id, index]));
+        const semifinalLosers = matches
+            .filter(match => match.tipo === 'semifinal' && match.estado === 'finalizado' && match.ganadorId)
+            .map(match => match.ganadorId === match.equipoLocalId ? match.equipoVisitanteId : match.equipoLocalId)
+            .sort((left, right) => (generalIndex.get(left) ?? Infinity) - (generalIndex.get(right) ?? Infinity));
+        const finalOrder = [final.ganadorId, runnerUpId, ...semifinalLosers];
+        const orderedIds = [...new Set(finalOrder)];
+        return [
+            ...orderedIds.map(id => general.find(team => team.id === id)).filter(Boolean),
+            ...general.filter(team => !orderedIds.includes(team.id))
+        ];
     }
 };

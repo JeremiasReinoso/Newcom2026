@@ -1,89 +1,72 @@
+import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { SchedulerService } from '../services/scheduler.js';
+
+const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
 
 export const initScheduleView = () => {
-    const torneo = DataManager.getCurrentTournament();
-    if (!torneo) {
-        alert("No hay torneo activo");
+    let tournamentId;
+    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
+    const box = document.getElementById('programacion-list');
+    const controls = document.querySelector('#view-programacion .panel-control');
+    const categoryId = AppState.getCategory();
+    if (!tournamentId || !categoryId) {
+        controls.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; box.innerHTML = '';
         return;
     }
+    const tournament = DataManager.getTournament(tournamentId);
+    const category = DataManager.getCategory(categoryId);
+    const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
+    const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
+    const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
+    const drafts = matches.filter(match => !isOfficialMatch(match));
+    const official = matches.filter(isOfficialMatch);
+    const teamName = id => teams.find(team => team.id === id)?.nombre || 'Equipo eliminado';
+    const zoneName = id => zones.find(zone => zone.id === id)?.nombre || 'Sin zona';
+    const period = DataManager.getTournamentPeriod(tournamentId);
+    const courtCount = DataManager.getTournamentCourtCount(tournamentId);
 
-    const categoriaId = DataManager.getCurrentCategory();
-    if (!categoriaId) {
-        alert("Seleccione una categoría primero");
-        return;
-    }
+    controls.innerHTML = `
+        <h3>${tournament.nombre} · ${category.nombre}</h3>
+        <p>${tournament.partidos_asegurados} partidos asegurados por equipo. ${period ? `Período: ${period.startDate} a ${period.endDate}.` : 'Defina el período en Calendario antes de programar.'}</p>
+        <label>Canchas disponibles <input id="cantidad-canchas" type="number" min="1" max="20" value="${courtCount}"></label>
+        <button id="guardar-canchas" class="btn-primary">Guardar canchas</button>
+        <button id="btn-generar-emparejamientos" class="btn-primary">1. Generar emparejamientos</button>
+        <button id="btn-confirmar-emparejamientos" class="btn-primary">2. Confirmar emparejamientos</button>
+        <button id="btn-programar-emparejamientos" class="btn-primary">3. Programar partidos confirmados</button>`;
 
-    const zones = DataManager.getZonesByCategory(categoriaId);
-    const equipos = DataManager.getTeamsByCategory(categoriaId);
+    const draftHtml = drafts.length ? drafts.map(match => `<li>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)} <button class="eliminar-borrador" data-id="${match.id}">Eliminar</button></li>`).join('') : '<li>No hay borradores por revisar.</li>';
+    const officialHtml = official.length ? official.map(match => `<article class="card"><strong>${match.estado === 'finalizado' ? 'FINALIZADO' : 'PENDIENTE'}</strong><p>${match.fecha ? `${match.fecha} · ${match.hora} · ${match.cancha}` : 'Pendiente de programación: presione “3. Programar partidos confirmados”.'}</p><p>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)}</p>${match.estado === 'finalizado' ? `<p>Resultado: ${match.setsLocal}-${match.setsVisitante}</p>` : ''}</article>`).join('') : '<p>Aún no hay partidos oficiales.</p>';
+    box.innerHTML = `<h3>Borradores para revisar</h3><p>Los borradores no aparecen en Resultados.</p><ul>${draftHtml}</ul><h3>Partidos confirmados</h3>${officialHtml}`;
 
-    let html = `
-    <div class="view-section" id="view-programacion">
-        <div class="container">
-            <h2>Programación - ${torneo.nombre}</h2>
-            
-            <div-card>
-                <h3>Configuración</h3>
-                <p>Partidos asegurados por equipo: ${torneo.partidos_asegurados}</p>
-                <p>Total de equipos: ${equipos.length}</p>
-                <p>Total de zonas: ${zones.length}</p>
-            </div-card>
-
-            ${zones.length === 0 ? `
-                <p>Primero debe crear al menos una zona.</p>
-                <button class="btn-primary" onclick="openCreateZone()">Crear Zona</button>
-            ` : `
-                <div class="programacion-area">
-                    <button class="btn-primary" onclick="generarProgramacion()">Generar Programación</button>
-                    <p id="programacion-estado" style="margin-top:10px; color: #666;"></p>
-                </div>
-            `}
-
-            ${DataManager.getMatchesByTournament(torneo.id).length > 0 ? `
-                <div class="resultados-area" style="margin-top: 20px;">
-                    <h3>Partidos Generados</h3>
-                    <div id="lista-partidos"></div>
-                </div>
-            ` : ''}
-        </div>
-    </div>`;
-
-    document.getElementById('app').innerHTML = html;
-
-    // Cargar partidos existentes si los hay
-    const existingMatches = DataManager.getMatchesByTournament(torneo.id);
-    if (existingMatches.length > 0) {
-        document.getElementById('lista-partidos').innerHTML = existingMatches.map(m => `
-            <div class="tarjeta partido-card">
-                <h4>${m.zonaNombre || 'Zona'} - ${equipos.find(e => e.id === m.equipoLocalId)?.nombre} vs ${equipos.find(e => e.id === m.equipoVisitanteId)?.nombre}</h4>
-                <p>Estado: ${m.estado}</p>
-                ${m.estado === 'finalizado' ? `
-                    <p>Sets: ${m.setsLocal} - ${m.setsVisitante}</p>
-                ` : `
-                    <button class="btn-resultado" onclick="cargarResultado('${m.id}')">Cargar Resultado</button>
-                `}
-            </div>
-        `).join('');
-    }
-};
-
-window.generarProgramacion = () => {
-    try {
-        SchedulerService.generarPartidos();
-        initScheduleView();
-    } catch (e) {
-        alert(e.message);
-    }
-};
-
-window.cargarResultado = (matchId) => {
-    const setsLocal = parseInt(prompt("Sets local (0, 1 o 2):"));
-    const setsVisitante = parseInt(prompt("Sets visitante (0, 1 o 2):"));
-    
-    if (isNaN(setsLocal) || isNaN(setsVisitante)) {
-        alert("Ingrese valores válidos");
-        return;
-    }
-
-    DataManager.updateMatchResult(matchId, setsLocal, setsVisitante);
-    initScheduleView();
+    document.querySelectorAll('.eliminar-borrador').forEach(button => button.addEventListener('click', () => {
+        try { DataManager.removeMatch(button.dataset.id); initScheduleView(); } catch (error) { alert(error.message); }
+    }));
+    document.getElementById('guardar-canchas').addEventListener('click', () => {
+        try { DataManager.setTournamentCourtCount(tournamentId, document.getElementById('cantidad-canchas').value); initScheduleView(); } catch (error) { alert(error.message); }
+    });
+    document.getElementById('btn-generar-emparejamientos').addEventListener('click', () => {
+        try {
+            const created = SchedulerService.generarEmparejamientos(tournamentId, categoryId);
+            const check = SchedulerService.verificarPartidosAsegurados(tournamentId, categoryId);
+            alert(`${created} borradores creados. ${check.mensaje}`);
+            initScheduleView();
+        } catch (error) { alert(error.message); }
+    });
+    document.getElementById('btn-confirmar-emparejamientos').addEventListener('click', () => {
+        try {
+            const check = SchedulerService.verificarPartidosAsegurados(tournamentId, categoryId);
+            if (!check.ok) throw new Error(check.mensaje);
+            const confirmed = SchedulerService.confirmarEmparejamientos(tournamentId, categoryId);
+            alert(`${confirmed} partidos confirmados. Ya están disponibles en Resultados.`);
+            initScheduleView();
+        } catch (error) { alert(error.message); }
+    });
+    document.getElementById('btn-programar-emparejamientos').addEventListener('click', () => {
+        try {
+            DataManager.setTournamentCourtCount(tournamentId, document.getElementById('cantidad-canchas').value);
+            alert(`${SchedulerService.programarEmparejamientos(tournamentId, categoryId)} partidos programados.`);
+            initScheduleView();
+        } catch (error) { alert(error.message); }
+    });
 };

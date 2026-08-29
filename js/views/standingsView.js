@@ -1,57 +1,18 @@
+import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { PosicionesService } from '../services/standings.js';
 
 export const initStandingsView = () => {
-    const torneo = DataManager.getCurrentTournament();
-    if (!torneo) {
-        alert("No hay torneo activo");
-        return;
-    }
-
-    const categoriaId = DataManager.getCurrentCategory();
-    if (!categoriaId) {
-        alert("Seleccione una categoría primero");
-        return;
-    }
-
-    const posiciones = PosicionesService.calcularPosiciones();
-
-    let html = `
-    <div class="view-section" id="view-posiciones">
-        <div class="container">
-            <h2>Posiciones - ${torneo.nombre}</h2>
-            
-            ${posiciones.length > 0 ? `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Equipo</th>
-                            <th>Zona</th>
-                            <th>PJ</th>
-                            <th>PG</th>
-                            <th>PP</th>
-                            <th>Puntos</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${posiciones.map(p => `
-                            <tr>
-                                <td>${p.nombre}</td>
-                                <td>${p.zonaId ? 'Zona ' + p.zonaId : '—'}</td>
-                                <td>${p.jugados}</td>
-                                <td>${p.ganados}</td>
-                                <td>${p.perdidos}</td>
-                                <td>${p.puntos}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            ` : `
-                <p>Aún no hay resultados cargados. Genere la programación y cargue resultados.</p>
-            `}
-
-            <button class="btn-primary" onclick="initScheduleView()">Volver a Programación</button>
-        </div>
-    </div>`;
-
-    document.getElementById('app').innerHTML = html;
+    let tournamentId;
+    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
+    const container = document.getElementById('posiciones-list');
+    const categoryId = AppState.getCategory();
+    if (!tournamentId || !categoryId) { container.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; return; }
+    const finalRows = PosicionesService.calcularClasificacionFinal(tournamentId, categoryId);
+    const rows = finalRows || PosicionesService.calcularPosiciones(tournamentId, categoryId);
+    const finalLabels = ['Campeón', 'Subcampeón', 'Tercer puesto'];
+    const tableRows = rows.map((row, index) => `<tr><td>${index + 1}</td><td>${finalRows ? (finalLabels[index] || `${index + 1}.º puesto`) : '-'}</td><td>${row.nombre}</td><td>${row.jugados}</td><td>${row.ganados}</td><td>${row.perdidos}</td><td>${row.setsFavor}</td><td>${row.setsContra}</td><td>${row.diferenciaSets}</td><td>${row.puntos}</td></tr>`).join('');
+    const title = finalRows ? 'Clasificación final' : 'Clasificación general';
+    const description = finalRows ? 'La final define campeón y subcampeón. El tercer puesto y los puestos restantes se ordenan por la clasificación general interna.' : 'Los cuatro primeros clasifican a semifinales.';
+    container.innerHTML = `<section class="card"><h3>${title}</h3><p>${description}</p><table><thead><tr><th>#</th><th>Puesto</th><th>Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>SF</th><th>SC</th><th>Dif.</th><th>Pts</th></tr></thead><tbody>${tableRows || '<tr><td colspan="10">Aún no hay equipos en esta categoría.</td></tr>'}</tbody></table></section>`;
 };

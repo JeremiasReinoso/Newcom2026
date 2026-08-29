@@ -1,81 +1,30 @@
-import { MatchRepo } from '../data/matchRepo.js';
+import { AppState } from '../core/state.js';
+import { DataManager } from '../data/dataManager.js';
 
-const contenedorResultados = document.getElementById('resultados-list');
+const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
 
-export async function initResultadosView() {
-    await cargarPartidos();
-}
-
-async function cargarPartidos() {
-    contenedorResultados.innerHTML = '<p>Cargando partidos...</p>';
-    try {
-        const partidos = await MatchRepo.obtenerPorTorneo();
-        renderizarPartidos(partidos);
-    } catch (error) {
-        contenedorResultados.innerHTML = '<p style="color:red;">Error al cargar resultados.</p>';
-    }
-}
-
-function renderizarPartidos(partidos) {
-    if (!partidos || partidos.length === 0) {
-        contenedorResultados.innerHTML = '<p>No hay partidos programados. Vaya a Programación.</p>';
-        return;
-    }
-
-    contenedorResultados.innerHTML = partidos.map(p => {
-        if (p.estado === 'finalizado') {
-            return `
-                <div class="card" style="background: #e8f5e9;">
-                    <p><strong>${p.fecha} - ${p.hora}</strong></p>
-                    <p>${p.zona_nombre}</p>
-                    <h4>${p.local_nombre} ${p.sets_local} - ${p.sets_visitante} ${p.visitante_nombre}</h4>
-                    <p>Finalizado</p>
-                </div>
-            `;
-        }
-
-        return `
-            <div class="card">
-                <p><strong>${p.fecha} - ${p.hora}</strong></p>
-                <p>${p.zona_nombre}</p>
-                <h4 style="margin: 10px 0;">${p.local_nombre} vs ${p.visitante_nombre}</h4>
-                
-                <select id="res-${p.id}" style="width: 100%; padding: 10px; margin-bottom: 10px;">
-                    <option value="">Seleccione resultado...</option>
-                    <option value="2-0">Ganó ${p.local_nombre} (2-0)</option>
-                    <option value="2-1">Ganó ${p.local_nombre} (2-1)</option>
-                    <option value="0-2">Ganó ${p.visitante_nombre} (2-0)</option>
-                    <option value="1-2">Ganó ${p.visitante_nombre} (2-1)</option>
-                </select>
-                
-                <button class="btn-guardar-res btn-primary" data-id="${p.id}">Guardar</button>
-            </div>
-        `;
-    }).join('');
-
-    document.querySelectorAll('.btn-guardar-res').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            const partidoId = e.target.dataset.id;
-            const select = document.getElementById(`res-${partidoId}`);
-            const valor = select.value;
-
-            if (!valor) {
-                alert("Seleccione un resultado válido.");
-                return;
-            }
-
-            const [setsLocal, setsVisitante] = valor.split('-').map(Number);
-
-            try {
-                e.target.disabled = true;
-                e.target.textContent = "Guardando...";
-                await MatchRepo.actualizarResultado(partidoId, setsLocal, setsVisitante);
-                await cargarPartidos();
-            } catch (error) {
-                alert("Error al guardar el resultado.");
-                e.target.disabled = false;
-                e.target.textContent = "Guardar";
-            }
-        });
-    });
+export function initResultadosView() {
+    let tournamentId;
+    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
+    const list = document.getElementById('resultados-list');
+    const categoryId = AppState.getCategory();
+    if (!tournamentId || !categoryId) { list.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; return; }
+    const category = DataManager.getCategory(categoryId);
+    const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
+    const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
+    const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(isOfficialMatch);
+    const team = id => teams.find(item => item.id === id)?.nombre || 'Equipo';
+    const zone = id => zones.find(item => item.id === id)?.nombre || 'Sin zona';
+    const options = (match) => [['2-0', `${team(match.equipoLocalId)} 2-0`], ['2-1', `${team(match.equipoLocalId)} 2-1`], ['0-2', `${team(match.equipoVisitanteId)} 2-0`], ['1-2', `${team(match.equipoVisitanteId)} 2-1`]]
+        .map(([value, label]) => `<option value="${value}" ${value === `${match.setsLocal}-${match.setsVisitante}` ? 'selected' : ''}>${label}</option>`).join('');
+    list.innerHTML = matches.length ? matches.map(match => {
+        const finished = match.estado === 'finalizado';
+        return `<article class="card"><strong>${finished ? 'FINALIZADO' : 'PENDIENTE'}</strong><p>${category.nombre} · ${zone(match.zonaId)}</p><h3>${team(match.equipoLocalId)} vs ${team(match.equipoVisitanteId)}</h3><p>${match.fecha ? `${match.fecha} · ${match.hora} · ${match.cancha}` : 'Aún sin programación'}</p>${finished ? `<p>Resultado actual: ${match.setsLocal}-${match.setsVisitante}</p>` : ''}<select class="resultado-select" data-id="${match.id}"><option value="">Seleccione resultado...</option>${options(match)}</select><button class="guardar-resultado btn-primary" data-id="${match.id}">${finished ? 'Editar resultado' : 'Registrar resultado'}</button></article>`;
+    }).join('') : '<p>No hay partidos confirmados para esta categoría. Confirme los emparejamientos desde Programación.</p>';
+    document.querySelectorAll('.guardar-resultado').forEach(button => button.addEventListener('click', () => {
+        const value = document.querySelector(`.resultado-select[data-id="${button.dataset.id}"]`).value;
+        if (!value) return alert('Seleccione un resultado válido.');
+        const [local, visitante] = value.split('-').map(Number);
+        try { DataManager.updateMatchResult(button.dataset.id, local, visitante); initResultadosView(); } catch (error) { alert(error.message); }
+    }));
 }
