@@ -4,16 +4,15 @@ export const Navigation = {
         const buttons = document.querySelectorAll('button.nav-btn[id^="btn-nav-"]');
         const views = document.querySelectorAll('.view-section');
 
-        buttons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (btn.disabled) return;
+        buttons.forEach(button => {
+            button.addEventListener('click', () => {
+                if (button.disabled) return;
 
-                buttons.forEach(b => b.classList.remove('active'));
-                views.forEach(v => v.classList.remove('active'));
+                buttons.forEach(item => item.classList.remove('active'));
+                views.forEach(view => view.classList.remove('active'));
+                button.classList.add('active');
 
-                btn.classList.add('active');
-                const targetId = btn.id.replace('btn-nav-', 'view-');
-                const target = document.getElementById(targetId);
+                const target = document.getElementById(button.id.replace('btn-nav-', 'view-'));
                 if (target) target.classList.add('active');
             });
         });
