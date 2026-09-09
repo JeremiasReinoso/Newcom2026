@@ -22,11 +22,17 @@ const standings = load('js/services/standings.js')
 const playoffs = load('js/services/playoffs.js')
     .replace("import { DataManager } from '../data/dataManager.js';", '')
     .replace("import { PosicionesService } from './standings.js';", '')
+    .replace("import { SchedulerService } from './scheduler.js';", '')
     .replace('export const PlayoffsService', 'const PlayoffsService');
 
 const scenario = `
     const tournament = DataManager.createTournament('Prueba +50', 3);
     const category = DataManager.createCategory('+50', tournament.id);
+    let duplicateCategoryBlocked = false;
+    try { DataManager.createCategory('+50', tournament.id); } catch { duplicateCategoryBlocked = true; }
+    if (!duplicateCategoryBlocked) throw new Error('Se permitió duplicar una categoría dentro del mismo torneo.');
+    const batchCategories = DataManager.createCategories(['+40 Femenino', '+60 Mixto'], tournament.id);
+    if (batchCategories.length !== 2 || DataManager.getCategoriesByTournament(tournament.id).length !== 3) throw new Error('No se pudieron crear varias categorías en una sola acción.');
     const zone = DataManager.createZone('Zona A', category.id, tournament.id);
     for (const name of ['A', 'B', 'C', 'D']) {
         const team = DataManager.createTeam('Equipo ' + name, category.id, tournament.id);
@@ -49,7 +55,22 @@ const scenario = `
     }
     if (!Object.values(counts).every(count => count === 3)) throw new Error('No hay tres partidos por equipo.');
     if (uniquePairs.size !== 6) throw new Error('Se repitieron cruces antes de agotar los seis cruces únicos.');
+    if (!matches.every(match => Number.isInteger(match.ronda) && match.ronda >= 1)) throw new Error('Los cruces no quedaron organizados por rondas.');
+    const appearancesPerRound = new Map();
+    for (const match of matches) {
+        for (const teamId of [match.equipoLocalId, match.equipoVisitanteId]) {
+            const key = match.ronda + ':' + teamId;
+            appearancesPerRound.set(key, (appearancesPerRound.get(key) || 0) + 1);
+        }
+    }
+    if ([...appearancesPerRound.values()].some(count => count !== 1)) throw new Error('Un equipo fue programado más de una vez en la misma ronda.');
+    let duplicatePairBlocked = false;
+    try { DataManager.addMatches([{ torneoId: tournament.id, categoriaId: category.id, zonaId: zone.id, tipo: 'fase_zonas', equipoLocalId: registeredTeams[0].id, equipoVisitanteId: registeredTeams[1].id, fecha: null }]); } catch { duplicatePairBlocked = true; }
+    if (!duplicatePairBlocked) throw new Error('Se permitió guardar un enfrentamiento duplicado.');
     if (SchedulerService.generarEmparejamientos(tournament.id, category.id) !== 0 || DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).length !== 6) throw new Error('Regenerar el fixture acumuló enfrentamientos.');
+    if (SchedulerService.recrearBorradores(tournament.id, category.id) !== 6) throw new Error('No se pudieron rehacer los borradores con el fixture por rondas.');
+    matches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
+    if (new Set(matches.map(match => [match.equipoLocalId, match.equipoVisitanteId].sort().join(':'))).size !== 6) throw new Error('Rehacer los borradores generó cruces duplicados.');
     if (!matches.every(match => match.estado === 'borrador' && !match.confirmado)) throw new Error('Los emparejamientos no quedaron como borradores.');
     let blocked = false;
     try { DataManager.updateMatchResult(matches[0].id, 2, 0); } catch { blocked = true; }
@@ -76,6 +97,13 @@ const scenario = `
     if (scheduled !== 6 || matches.some(match => !match.fecha || !match.hora || !match.cancha || match.estado !== 'pendiente' || !scheduleByDate.has(match.fecha) || match.hora < scheduleByDate.get(match.fecha).inicio || match.hora >= scheduleByDate.get(match.fecha).fin)) throw new Error('La programación está incompleta o sale de los horarios configurados.');
     const matchesPerDay = daySchedules.map(day => matches.filter(match => match.fecha === day.fecha).length);
     if (Math.max(...matchesPerDay) - Math.min(...matchesPerDay) > 1) throw new Error('Los partidos no se distribuyeron equilibradamente entre los días.');
+    const datesPerRound = new Map();
+    matches.forEach(match => {
+        const datesForRound = datesPerRound.get(match.ronda) || new Set();
+        datesForRound.add(match.fecha);
+        datesPerRound.set(match.ronda, datesForRound);
+    });
+    if ([...datesPerRound.values()].some(datesForRound => datesForRound.size !== 1)) throw new Error('Una ronda se dividió entre días aun cuando había capacidad disponible.');
     const matchesPerCourt = [...matches.reduce((countsByCourt, match) => countsByCourt.set(match.cancha, (countsByCourt.get(match.cancha) || 0) + 1), new Map()).values()];
     if (matchesPerCourt.length !== 3 || Math.max(...matchesPerCourt) - Math.min(...matchesPerCourt) > 1) throw new Error('Los partidos no se repartieron equilibradamente entre las canchas.');
     DataManager.setTournamentCalendar(tournament.id, '2026-09-15', '2026-09-17', '09:00', '21:00', [
@@ -93,40 +121,136 @@ const scenario = `
     SchedulerService.programarEmparejamientos(tournament.id, category.id);
     matches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     blocked = false;
-    try { DataManager.updateMatchResult(matches[0].id, 1, 0); } catch { blocked = true; }
-    if (!blocked) throw new Error('Se permitió un resultado distinto de 2-0 o 2-1.');
-    DataManager.updateMatchResult(matches[0].id, 2, 0);
-    DataManager.updateMatchResult(matches[1].id, 2, 1);
+    try { DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 18 }]); } catch { blocked = true; }
+    if (!blocked) throw new Error('Se permitió un set empatado.');
+    blocked = false;
+    try { DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 21, puntosVisitante: 16 }, { puntosLocal: 17, puntosVisitante: 21 }]); } catch { blocked = true; }
+    if (!blocked) throw new Error('Se permitió un tercer set después de cerrar 2-0.');
+    DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 21, puntosVisitante: 16 }]);
+    DataManager.updateMatchResult(matches[1].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 18, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 17 }]);
     let scoredMatches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     const firstScored = scoredMatches.find(match => match.id === matches[0].id);
     const secondScored = scoredMatches.find(match => match.id === matches[1].id);
-    if (firstScored.puntosLocal !== 3 || firstScored.puntosVisitante !== 1 || firstScored.ganadorId !== firstScored.equipoLocalId) throw new Error('El 2-0 no generó su puntuación interna.');
-    if (secondScored.puntosLocal !== 2 || secondScored.puntosVisitante !== 1 || secondScored.ganadorId !== secondScored.equipoLocalId) throw new Error('El 2-1 no generó su puntuación interna.');
+    if (firstScored.setsLocal !== 2 || firstScored.setsVisitante !== 0 || firstScored.ganadorId !== firstScored.equipoLocalId || firstScored.sets[0].puntosLocal !== 21 || firstScored.puntosLocal !== 3 || firstScored.puntosVisitante !== 1) throw new Error('El 2-0 no calculó su puntaje interno 3–1.');
+    if (secondScored.setsLocal !== 2 || secondScored.setsVisitante !== 1 || secondScored.ganadorId !== secondScored.equipoLocalId || secondScored.sets.length !== 3 || secondScored.puntosLocal !== 2 || secondScored.puntosVisitante !== 1) throw new Error('El 2-1 no calculó sus sets y puntaje interno 2–1.');
     const table = PosicionesService.calcularPosiciones(tournament.id, category.id);
-    if (!table.some(row => row.puntos === 3) || !table.some(row => row.puntos === 2) || !table.some(row => row.puntos === 1)) throw new Error('No se aplicó el puntaje 2-0 / 2-1.');
-    if (!table.every(row => Number.isInteger(row.setsFavor) && Number.isInteger(row.setsContra) && Number.isInteger(row.diferenciaSets))) throw new Error('No se calcularon los sets.');
-    DataManager.updateMatchResult(matches[0].id, 2, 1);
+    const firstLocal = table.find(row => row.id === firstScored.equipoLocalId);
+    if (!firstLocal || firstLocal.puntos !== 3 || firstLocal.jugados !== 1 || firstLocal.ganados !== 1 || firstLocal.setsFavor !== 2 || firstLocal.setsContra !== 0 || firstLocal.puntosFavor !== 42 || firstLocal.puntosContra !== 34 || firstLocal.diferenciaPuntos !== 8) throw new Error('La tabla no se construyó con los puntos y sets reales.');
+    if (!table.every(row => Number.isInteger(row.setsFavor) && Number.isInteger(row.setsContra) && Number.isInteger(row.diferenciaSets) && Number.isInteger(row.puntosFavor) && Number.isInteger(row.puntosContra) && Number.isInteger(row.diferenciaPuntos))) throw new Error('No se calcularon las estadísticas internas completas.');
+    DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 18, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 16 }]);
     scoredMatches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     const editedMatch = scoredMatches.find(match => match.id === matches[0].id);
-    if (editedMatch.puntosLocal !== 2 || editedMatch.puntosVisitante !== 1) throw new Error('La edición del marcador no recalculó la puntuación interna.');
+    if (editedMatch.setsLocal !== 2 || editedMatch.setsVisitante !== 1 || editedMatch.sets.length !== 3) throw new Error('La edición del marcador no recalculó el resultado interno.');
     const updatedTable = PosicionesService.calcularPosiciones(tournament.id, category.id);
-    if (updatedTable.reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('La edición duplicó puntos en la tabla.');
-    const playoffsInfo = PlayoffsService.generarSemifinales(tournament.id, category.id);
-    let playoffs = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).filter(match => match.tipo === 'semifinal');
-    if (playoffs.length !== 2 || playoffs[0].equipoLocalId !== updatedTable[0].id || playoffs[0].equipoVisitanteId !== updatedTable[3].id || playoffs[1].equipoLocalId !== updatedTable[1].id || playoffs[1].equipoVisitanteId !== updatedTable[2].id) throw new Error('Las semifinales no usan los cuatro primeros de la tabla general.');
-    const groupMatchesOnLastDay = matches.filter(match => match.fecha === '2026-09-14');
-    if (playoffs.some(match => match.fecha !== '2026-09-14' || groupMatchesOnLastDay.some(groupMatch => groupMatch.hora === match.hora && (groupMatch.cancha === match.cancha || [groupMatch.equipoLocalId, groupMatch.equipoVisitanteId].includes(match.equipoLocalId) || [groupMatch.equipoLocalId, groupMatch.equipoVisitanteId].includes(match.equipoVisitanteId))))) throw new Error('Las semifinales no respetan una franja libre del último día.');
-    DataManager.updateMatchResult(playoffs[0].id, 2, 0);
-    DataManager.updateMatchResult(playoffs[1].id, 1, 2);
-    if (PosicionesService.calcularPosiciones(tournament.id, category.id).reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('Las eliminatorias alteraron la clasificación general.');
-    PlayoffsService.generarFinal(tournament.id, category.id);
-    const final = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).find(match => match.tipo === 'final');
-    if (!final || final.equipoLocalId !== playoffs[0].equipoLocalId || final.equipoVisitanteId !== playoffs[1].equipoVisitanteId) throw new Error('La final no usa los ganadores de las semifinales.');
-    if (final.fecha !== '2026-09-14' || final.hora <= Math.max(...playoffs.map(match => match.hora))) throw new Error('La final no respeta el horario posterior a las semifinales.');
-    DataManager.updateMatchResult(final.id, 2, 1);
-    const finalTable = PosicionesService.calcularClasificacionFinal(tournament.id, category.id);
-    if (!finalTable || finalTable.length !== 4 || finalTable[0].id !== final.equipoLocalId || finalTable[1].id !== final.equipoVisitanteId) throw new Error('La clasificación final no muestra campeón, subcampeón y el resto de los puestos.');
-    console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates, playoffsDate: playoffsInfo.date }));
+    const editedLocal = updatedTable.find(row => row.id === editedMatch.equipoLocalId);
+    if (!editedLocal || editedLocal.jugados !== 1 || editedLocal.puntosFavor !== 60 || editedLocal.puntosContra !== 55 || updatedTable.reduce((total, row) => total + row.jugados, 0) !== 4) throw new Error('La edición duplicó o conservó estadísticas anteriores.');
+    let top16Blocked = false;
+    try { PlayoffsService.generarTop16(tournament.id, category.id); } catch { top16Blocked = true; }
+    if (!top16Blocked) throw new Error('Se generó Top 16 con menos de 16 equipos.');
+
+    const oddTournament = DataManager.createTournament('Zona impar', 2);
+    const oddCategory = DataManager.createCategory('+60', oddTournament.id);
+    const oddZone = DataManager.createZone('Zona Impar', oddCategory.id, oddTournament.id);
+    for (const name of ['A', 'B', 'C', 'D', 'E']) {
+        const team = DataManager.createTeam('Impar ' + name, oddCategory.id, oddTournament.id);
+        DataManager.assignTeamToZone(team.id, oddZone.id);
+    }
+    const oddCreated = SchedulerService.generarEmparejamientos(oddTournament.id, oddCategory.id);
+    const oddMatches = DataManager.getMatchesByTournamentAndCategory(oddTournament.id, oddCategory.id);
+    const oddCounts = new Map();
+    const oddPairs = new Set();
+    const oddRoundAppearances = new Map();
+    for (const match of oddMatches) {
+        const pair = [match.equipoLocalId, match.equipoVisitanteId].sort().join(':');
+        oddPairs.add(pair);
+        for (const teamId of [match.equipoLocalId, match.equipoVisitanteId]) {
+            oddCounts.set(teamId, (oddCounts.get(teamId) || 0) + 1);
+            const roundKey = match.ronda + ':' + teamId;
+            oddRoundAppearances.set(roundKey, (oddRoundAppearances.get(roundKey) || 0) + 1);
+        }
+    }
+    if (oddCreated !== 6 || oddPairs.size !== oddMatches.length || [...oddCounts.values()].some(count => count < 2) || [...oddRoundAppearances.values()].some(count => count > 1)) throw new Error('La zona impar no generó rondas equilibradas y sin repetir cruces.');
+
+    const repairTournament = DataManager.createTournament('Reparación de borradores', 3);
+    const repairCategory = DataManager.createCategory('+70', repairTournament.id);
+    const repairZone = DataManager.createZone('Zona a reparar', repairCategory.id, repairTournament.id);
+    for (const name of ['A', 'B', 'C', 'D']) {
+        const team = DataManager.createTeam('Reparar ' + name, repairCategory.id, repairTournament.id);
+        DataManager.assignTeamToZone(team.id, repairZone.id);
+    }
+    SchedulerService.generarEmparejamientos(repairTournament.id, repairCategory.id);
+    const stored = JSON.parse(localStorage.getItem('newcom_data'));
+    const legacyMatch = stored.matches.find(match => match.torneoId === repairTournament.id && match.categoriaId === repairCategory.id);
+    const missingMatch = stored.matches.find(match => match.torneoId === repairTournament.id && match.categoriaId === repairCategory.id && match.id !== legacyMatch.id);
+    stored.matches = stored.matches.filter(match => match.id !== missingMatch.id);
+    stored.matches.push({ ...legacyMatch, id: 'partido_duplicado_antiguo' });
+    localStorage.setItem('newcom_data', JSON.stringify(stored));
+    const repaired = SchedulerService.generarEmparejamientos(repairTournament.id, repairCategory.id);
+    const repairedMatches = DataManager.getMatchesByTournamentAndCategory(repairTournament.id, repairCategory.id);
+    if (repaired !== 1 || repairedMatches.length !== 6 || new Set(repairedMatches.map(match => [match.equipoLocalId, match.equipoVisitanteId].sort().join(':'))).size !== 6) throw new Error('Los borradores duplicados heredados no se recuperaron automáticamente.');
+
+    const cappedTournament = DataManager.createTournament('Máximo posible', 8);
+    const cappedCategory = DataManager.createCategory('+75', cappedTournament.id);
+    const cappedZone = DataManager.createZone('Zona limitada', cappedCategory.id, cappedTournament.id);
+    for (const name of ['A', 'B', 'C', 'D']) {
+        const team = DataManager.createTeam('Límite ' + name, cappedCategory.id, cappedTournament.id);
+        DataManager.assignTeamToZone(team.id, cappedZone.id);
+    }
+    let impossibleAssuredBlocked = false;
+    try { SchedulerService.generarEmparejamientos(cappedTournament.id, cappedCategory.id); } catch { impossibleAssuredBlocked = true; }
+    if (!impossibleAssuredBlocked) throw new Error('Se redujeron los partidos asegurados en lugar de informar una zona imposible.');
+
+    const drawTournament = DataManager.createTournament('Sorteo con líderes', 2);
+    const drawCategory = DataManager.createCategory('+40 Mixto', drawTournament.id);
+    const drawZoneA = DataManager.createZone('Zona A', drawCategory.id, drawTournament.id);
+    const drawZoneB = DataManager.createZone('Zona B', drawCategory.id, drawTournament.id);
+    const drawTeams = [];
+    for (const name of ['A', 'B', 'C', 'D', 'E', 'F']) drawTeams.push(DataManager.createTeam('Sorteo ' + name, drawCategory.id, drawTournament.id));
+    let duplicateLeaderBlocked = false;
+    try { DataManager.drawZones(drawTournament.id, drawCategory.id, { [drawZoneA.id]: drawTeams[0].id, [drawZoneB.id]: drawTeams[0].id }); } catch { duplicateLeaderBlocked = true; }
+    if (!duplicateLeaderBlocked) throw new Error('Un equipo pudo ser cabeza de serie de dos zonas.');
+    DataManager.drawZones(drawTournament.id, drawCategory.id, { [drawZoneA.id]: drawTeams[0].id, [drawZoneB.id]: drawTeams[1].id });
+    const seededZones = DataManager.getZonesByTournamentAndCategory(drawTournament.id, drawCategory.id);
+    const seededTeams = DataManager.getTeamsByTournamentAndCategory(drawTournament.id, drawCategory.id);
+    const seededSizes = seededZones.map(zone => seededTeams.filter(team => team.zonaId === zone.id).length);
+    if (seededZones.find(zone => zone.id === drawZoneA.id).liderEquipoId !== drawTeams[0].id || seededZones.find(zone => zone.id === drawZoneB.id).liderEquipoId !== drawTeams[1].id || seededTeams.find(team => team.id === drawTeams[0].id).zonaId !== drawZoneA.id || seededTeams.find(team => team.id === drawTeams[1].id).zonaId !== drawZoneB.id || Math.max(...seededSizes) - Math.min(...seededSizes) > 1) throw new Error('El sorteo con cabezas de serie no respetó líderes o equilibrio.');
+    DataManager.drawZones(drawTournament.id, drawCategory.id);
+    if (DataManager.getZonesByTournamentAndCategory(drawTournament.id, drawCategory.id).some(zone => zone.liderEquipoId)) throw new Error('El sorteo aleatorio conservó líderes que no fueron seleccionados.');
+
+    // Flujo completo: los ocho cruces de Top 16 son nuevos, conservan la
+    // fase de zonas y desembocan en Top 8, semifinales, tercer puesto y final.
+    const knockoutTournament = DataManager.createTournament('Llave completa', 1);
+    const knockoutCategory = DataManager.createCategory('+68 Mixto', knockoutTournament.id);
+    const knockoutZone = DataManager.createZone('Zona única', knockoutCategory.id, knockoutTournament.id);
+    for (let index = 1; index <= 16; index += 1) {
+        const team = DataManager.createTeam('Clasificado ' + index, knockoutCategory.id, knockoutTournament.id);
+        DataManager.assignTeamToZone(team.id, knockoutZone.id);
+    }
+    DataManager.setTournamentCalendar(knockoutTournament.id, '2026-10-01', '2026-10-12', '09:00', '21:00', []);
+    DataManager.setTournamentCourtCount(knockoutTournament.id, 2);
+    SchedulerService.generarEmparejamientos(knockoutTournament.id, knockoutCategory.id);
+    SchedulerService.confirmarEmparejamientos(knockoutTournament.id, knockoutCategory.id);
+    SchedulerService.programarEmparejamientos(knockoutTournament.id, knockoutCategory.id);
+    const finish = phase => DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id)
+        .filter(match => match.phase === phase)
+        .forEach(match => DataManager.updateMatchResult(match.id, [{ puntosLocal: 15, puntosVisitante: 8 }, { puntosLocal: 15, puntosVisitante: 9 }]));
+    const fixtureIdentity = matches => JSON.stringify(matches.filter(match => match.phase === 'ZONAS').map(match => ({ id: match.id, local: match.equipoLocalId, visitante: match.equipoVisitanteId, fecha: match.fecha, hora: match.hora, cancha: match.cancha })));
+    const assuredSnapshot = fixtureIdentity(DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id));
+    finish('ZONAS');
+    PlayoffsService.generarTop16(knockoutTournament.id, knockoutCategory.id);
+    let knockoutMatches = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id);
+    if (knockoutMatches.filter(match => match.phase === 'TOP_16').length !== 8 || fixtureIdentity(knockoutMatches) !== assuredSnapshot) throw new Error('El Top 16 no creó ocho partidos nuevos o alteró el fixture asegurado.');
+    finish('TOP_16'); PlayoffsService.generarTop8(knockoutTournament.id, knockoutCategory.id);
+    finish('TOP_8'); PlayoffsService.generarSemifinales(knockoutTournament.id, knockoutCategory.id);
+    finish('SEMIFINAL'); PlayoffsService.generarFinales(knockoutTournament.id, knockoutCategory.id);
+    knockoutMatches = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id);
+    if (knockoutMatches.filter(match => match.phase === 'TOP_8').length !== 4 || knockoutMatches.filter(match => match.phase === 'SEMIFINAL').length !== 2 || knockoutMatches.filter(match => match.phase === 'THIRD_PLACE').length !== 1 || knockoutMatches.filter(match => match.phase === 'FINAL').length !== 1) throw new Error('La llave eliminatoria no completó Top 8, semifinales, final y tercer puesto.');
+    finish('THIRD_PLACE'); finish('FINAL');
+    const finalTable = PosicionesService.calcularClasificacionFinal(knockoutTournament.id, knockoutCategory.id);
+    const finalMatch = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id).find(match => match.phase === 'FINAL');
+    const thirdMatch = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id).find(match => match.phase === 'THIRD_PLACE');
+    if (!finalTable || finalTable.length !== 16 || finalTable[0].id !== finalMatch.ganadorId || finalTable[2].id !== thirdMatch.ganadorId) throw new Error('La tabla final no actualizó campeón, subcampeón y tercer puesto desde las eliminatorias.');
+    console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates }));
 `;
 
 await import(`data:text/javascript;base64,${Buffer.from(`${dataManager}\n${scheduler}\n${standings}\n${playoffs}\n${scenario}`).toString('base64')}`);
