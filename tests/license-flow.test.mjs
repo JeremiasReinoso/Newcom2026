@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -25,27 +25,34 @@ try {
         removeItem(key) { this.values.delete(key); }
     };
     globalThis.fetch = (path, options) => nativeFetch(`${origin}${path}`, options);
-    const module = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?local-license-test=1`);
-    const { LicenciaRepo } = module;
+    const { LicenciaRepo } = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?local-license-test=2`);
 
-    const created = await LicenciaRepo.crear({ codigo: 'NWC-TEST-2026-001', cliente: 'Club X', organization: 'Club X', email: 'club@example.test', phone: '1234', cupoTotal: 1 });
-    if (created.id !== 'CLI-0001' || created.codigo !== 'NWC-TEST-2026-001' || created.disponibles !== 1 || !created.history.length) throw new Error('La licencia inicial no se creó con la estructura local requerida.');
-    const active = await LicenciaRepo.activar('nwc-test-2026-001');
-    if (active.disponibles !== 1) throw new Error('La activación no mostró un torneo disponible.');
-    const afterFirstTournament = await LicenciaRepo.consumirTorneo();
-    if (afterFirstTournament.disponibles !== 0 || afterFirstTournament.cupo_utilizado !== 1) throw new Error('Crear un torneo no consumió el crédito local.');
+    const created = await LicenciaRepo.crear({ cliente: 'Club X', organization: 'Club X', email: 'club@example.test', phone: '1234', cupoTotal: 3 });
+    if (created.id !== 'CLI-0001' || !/^NWC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(created.codigo) || created.disponibles !== 3 || !created.history.length) throw new Error('La licencia inicial no se creó con la estructura local requerida.');
+
+    const stored = JSON.parse(await readFile(join(dataDir, 'licenses.json'), 'utf8')).licenses[0];
+    const adminStore = JSON.parse(await readFile(join(dataDir, 'admin.json'), 'utf8'));
+    if (stored.clientName !== 'Club X' || stored.tournamentsPurchased !== 3 || stored.tournamentsUsed !== 0 || stored.tournamentsRemaining !== 3 || !stored.active) throw new Error('licenses.json no conserva el modelo local plano.');
+    if (adminStore.version !== '1.0') throw new Error('El almacenamiento administrativo local no fue inicializado.');
+
+    const invalid = await nativeFetch(`${origin}/api/licenses/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'NWC-0000-0000-0000' }) });
+    if (invalid.status !== 400 || (await invalid.json()).error !== 'El código de licencia no es válido o está deshabilitado.') throw new Error('La validación de códigos inválidos no devuelve el mensaje requerido.');
+
+    const active = await LicenciaRepo.activar(created.codigo.toLowerCase());
+    if (active.disponibles !== 3) throw new Error('La activación no mostró tres torneos disponibles.');
+    for (const remaining of [2, 1, 0]) {
+        const consumed = await LicenciaRepo.consumirTorneo();
+        if (consumed.disponibles !== remaining || consumed.cupo_utilizado !== 3 - remaining) throw new Error(`El consumo no actualizó el saldo a ${remaining}.`);
+    }
     let blocked = false;
-    try { await LicenciaRepo.consumirTorneo(); } catch { blocked = true; }
-    if (!blocked) throw new Error('Se permitió crear un torneo sin créditos.');
+    try { await LicenciaRepo.consumirTorneo(); } catch (error) { blocked = error.message === 'No tenés torneos disponibles. Contactá al administrador para adquirir más.'; }
+    if (!blocked) throw new Error('Se permitió crear un torneo sin créditos o se mostró un mensaje incorrecto.');
+
     const expanded = await LicenciaRepo.agregarTorneos(created.id, 5);
-    if (expanded.codigo !== 'NWC-TEST-2026-001' || expanded.disponibles !== 5 || expanded.cupo_total !== 6) throw new Error('Agregar créditos cambió el código o calculó mal el saldo.');
-    const refreshed = await LicenciaRepo.obtenerActiva();
-    if (!refreshed || refreshed.codigo !== 'NWC-TEST-2026-001' || refreshed.disponibles !== 5) throw new Error('El cliente no leyó el saldo actualizado de la misma licencia local.');
-    const afterSecondTournament = await LicenciaRepo.consumirTorneo();
-    if (afterSecondTournament.disponibles !== 4) throw new Error('El segundo torneo no actualizó el saldo a cuatro.');
+    if (expanded.codigo !== created.codigo || expanded.disponibles !== 5 || expanded.cupo_total !== 8) throw new Error('Agregar créditos cambió el código o calculó mal el saldo.');
     await LicenciaRepo.actualizar(created.id, { cliente: 'Club X', organizacion: 'Club X', email: 'club@example.test', telefono: '1234', activa: false });
     if (await LicenciaRepo.obtenerActiva()) throw new Error('Una licencia deshabilitada siguió activa en el cliente.');
-    console.log('El flujo local de licencia conserva código permanente y créditos correctos.');
+    console.log('El flujo local de licencia crea, activa, consume 3→0, bloquea y conserva el código.');
 } finally {
     globalThis.fetch = nativeFetch;
     server.kill();
