@@ -3,15 +3,20 @@ import { LicenciaRepo } from '../data/licenseRepo.js';
 const container = document.getElementById('admin-list');
 const panel = document.getElementById('admin-license-form');
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
-const newCode = () => `NWC-${[1, 2, 3].map(() => Math.random().toString(36).slice(2, 6).toUpperCase()).join('-')}`;
 
 const renderCreateForm = () => {
-    panel.innerHTML = `<form id="form-crear-licencia" class="form-card panel-control"><div class="form-title"><div><h3>Nueva licencia</h3><p>El código identifica permanentemente al cliente. Los créditos se pueden ampliar después.</p></div></div><div class="form-grid"><label class="form-field">Cliente<input name="cliente" required maxlength="90"></label><label class="form-field">Organización<input name="organizacion" maxlength="120"></label><label class="form-field">Email<input name="email" type="email" maxlength="120"></label><label class="form-field">Teléfono<input name="telefono" maxlength="40"></label><label class="form-field">Código<input name="codigo" value="${newCode()}" required maxlength="40"></label><label class="form-field">Torneos iniciales<input name="creditos" type="number" min="1" max="10000" value="1" required></label></div><div class="form-actions"><button class="btn-primary" type="submit">Crear licencia</button><button class="btn-secondary" type="button" id="cancelar-licencia">Cancelar</button></div><p class="license-error" aria-live="polite"></p></form>`;
+    panel.innerHTML = `<form id="form-crear-licencia" class="form-card panel-control"><div class="form-title"><div><h3>Nueva licencia</h3><p>El sistema generará un código único y permanente. Los créditos se pueden ampliar después sin cambiarlo.</p></div></div><div class="form-grid"><label class="form-field">Cliente<input name="cliente" required maxlength="90"></label><label class="form-field">Organización<input name="organizacion" maxlength="120"></label><label class="form-field">Email<input name="email" type="email" maxlength="120"></label><label class="form-field">Teléfono<input name="telefono" maxlength="40"></label><label class="form-field">Torneos iniciales<input name="creditos" type="number" min="1" max="10000" value="1" required></label></div><div class="form-actions"><button class="btn-primary" type="submit">Crear licencia</button><button class="btn-secondary" type="button" id="cancelar-licencia">Cancelar</button></div><p class="license-error" aria-live="polite"></p></form>`;
     panel.querySelector('#cancelar-licencia').addEventListener('click', () => { panel.innerHTML = ''; });
     panel.querySelector('form').addEventListener('submit', async event => {
         event.preventDefault(); const form = event.currentTarget; const error = form.querySelector('.license-error'); const button = form.querySelector('button[type="submit"]');
         button.disabled = true; error.textContent = '';
-        try { const values = new FormData(form); await LicenciaRepo.crear({ codigo: values.get('codigo'), cliente: values.get('cliente'), organization: values.get('organizacion'), email: values.get('email'), phone: values.get('telefono'), cupoTotal: values.get('creditos') }); panel.innerHTML = ''; await loadLicenses(); }
+        try {
+            const values = new FormData(form);
+            const license = await LicenciaRepo.crear({ cliente: values.get('cliente'), organization: values.get('organizacion'), email: values.get('email'), phone: values.get('telefono'), cupoTotal: values.get('creditos') });
+            panel.innerHTML = `<div class="form-card panel-control"><h3>Licencia creada</h3><p>Entregá este código al cliente:</p><p><strong>${escapeHtml(license.codigo)}</strong></p><button class="btn-secondary" type="button" id="cerrar-licencia-creada">Cerrar</button></div>`;
+            panel.querySelector('#cerrar-licencia-creada').addEventListener('click', () => { panel.innerHTML = ''; });
+            await loadLicenses();
+        }
         catch (exception) { error.textContent = exception.message; button.disabled = false; }
     });
 };
