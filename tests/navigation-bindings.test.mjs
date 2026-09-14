@@ -49,8 +49,8 @@ globalThis.localStorage = {
     getItem(key) { return this.values.get(key) || null; },
     setItem(key, value) { this.values.set(key, value); }
 };
-localStorage.setItem('newcom_license_registry_v1', JSON.stringify([{ id: 'lic_test', codigo: 'NWC-TEST-2026-001', cliente: 'Club de prueba', cupo_total: 1, cupo_utilizado: 0, activa: true }]));
 localStorage.setItem('newcom_active_license_code_v1', 'NWC-TEST-2026-001');
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ id: 'CLI-0001', code: 'NWC-TEST-2026-001', client: { name: 'Club de prueba', organization: '', email: '', phone: '' }, license: { tournamentsPurchased: 1, tournamentsUsed: 0, tournamentsRemaining: 1, active: true, createdAt: '', activatedAt: null }, history: [] }) });
 globalThis.document = {
     addEventListener: (type, callback) => {
         if (type === 'DOMContentLoaded') domReadyListeners.push(callback);
