@@ -1,7 +1,6 @@
 // Adaptador local de licencias. La UI sólo conoce este contrato; una futura
 // API puede reemplazar apiRequest sin alterar activación ni torneos.
 const ACTIVE_CODE_KEY = 'newcom_active_license_code_v1';
-const codePattern = /^NWC-[A-Z0-9]{4,}(?:-[A-Z0-9]{2,})+$/;
 const normalizeCode = code => String(code || '').trim().toUpperCase();
 const credits = value => { const amount = Number(value); if (!Number.isInteger(amount) || amount < 1 || amount > 10000) throw new Error('Ingrese una cantidad de torneos válida.'); return amount; };
 const apiRequest = async (path, method = 'GET', payload) => {
@@ -16,16 +15,16 @@ const apiRequest = async (path, method = 'GET', payload) => {
 const normalize = raw => raw && ({
     id: raw.id,
     codigo: normalizeCode(raw.code),
-    cliente: String(raw.client?.name || '').trim(),
-    organizacion: String(raw.client?.organization || '').trim(),
-    email: String(raw.client?.email || '').trim(),
-    telefono: String(raw.client?.phone || '').trim(),
-    cupo_total: Number(raw.license?.tournamentsPurchased || 0),
-    cupo_utilizado: Number(raw.license?.tournamentsUsed || 0),
-    disponibles: Math.max(0, Number(raw.license?.tournamentsRemaining || 0)),
-    activa: Boolean(raw.license?.active),
-    creado: raw.license?.createdAt || null,
-    activado: raw.license?.activatedAt || null,
+    cliente: String(raw.clientName || '').trim(),
+    organizacion: String(raw.organization || '').trim(),
+    email: String(raw.email || '').trim(),
+    telefono: String(raw.phone || '').trim(),
+    cupo_total: Number(raw.tournamentsPurchased || 0),
+    cupo_utilizado: Number(raw.tournamentsUsed || 0),
+    disponibles: Math.max(0, Number(raw.tournamentsRemaining || 0)),
+    activa: Boolean(raw.active),
+    creado: raw.createdAt || null,
+    activado: raw.activatedAt || null,
     history: Array.isArray(raw.history) ? raw.history : []
 });
 const toClient = license => ({ name: license.cliente, organization: license.organizacion, email: license.email, phone: license.telefono });
@@ -40,15 +39,13 @@ export const LicenciaRepo = {
         const code = normalizeCode(codigo); if (!code) return null;
         const licenses = await this.obtenerTodas(); return licenses.find(license => license.codigo === code) || null;
     },
-    async crear({ codigo, cliente, organization = '', email = '', phone = '', cupoTotal }) {
-        const code = normalizeCode(codigo);
-        if (!codePattern.test(code)) throw new Error('El código debe tener formato NWC-XXXX-XXXX.');
+    async crear({ cliente, organization = '', email = '', phone = '', cupoTotal }) {
         if (!String(cliente || '').trim()) throw new Error('Ingrese el nombre del cliente.');
-        return normalize(await apiRequest('/api/licenses', 'POST', { code, client: { name: String(cliente).trim(), organization, email, phone }, tournamentsPurchased: credits(cupoTotal) }));
+        return normalize(await apiRequest('/api/licenses', 'POST', { clientName: String(cliente).trim(), organization, email, phone, tournamentsPurchased: credits(cupoTotal) }));
     },
     async actualizar(id, changes) {
         if (!id || !String(changes.cliente || '').trim()) throw new Error('Ingrese los datos del cliente.');
-        return normalize(await apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', { client: { name: String(changes.cliente).trim(), organization: String(changes.organizacion || '').trim(), email: String(changes.email || '').trim(), phone: String(changes.telefono || '').trim() }, active: Boolean(changes.activa) }));
+        return normalize(await apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', { clientName: String(changes.cliente).trim(), organization: String(changes.organizacion || '').trim(), email: String(changes.email || '').trim(), phone: String(changes.telefono || '').trim(), active: Boolean(changes.activa) }));
     },
     async agregarTorneos(id, cantidad) {
         return normalize(await apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', { action: 'add-credits', amount: credits(cantidad) }));
